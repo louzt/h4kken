@@ -92,6 +92,7 @@ export class Fighter {
 
     // Hit effect
     this.hitFlash = 0;
+    this._cachedMaterials = null; // cached for fast hit-flash updates
 
     // Root bone reference (for root motion constraint)
     this.rootBone = null;
@@ -645,18 +646,21 @@ export class Fighter {
       });
     }
 
-    // Find root bone for root-motion constraint
+    // Find root bone and cache materials for fast per-frame access
     this.rootBone = null;
+    const matSet = new Set();
     this.model.traverse(child => {
       if (child.isBone && !this.rootBone) {
         this.rootBone = child;
         this.rootBoneBindX = child.position.x;
         this.rootBoneBindZ = child.position.z;
       }
+      if (child.isMesh) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach(m => matSet.add(m));
+      }
     });
-    if (this.rootBone) {
-      console.log(`[H4KKEN] P${this.playerIndex + 1} root bone: "${this.rootBone.name}"`);
-    }
+    this._cachedMaterials = [...matSet];
 
     // Create animation mixer
     this.mixer = new THREE.AnimationMixer(this.model);
@@ -1302,26 +1306,20 @@ export class Fighter {
     while (diff < -Math.PI) diff += 2 * Math.PI;
     this.model.rotation.y += diff * 0.2;
 
-    // 5. Hit flash effect (only traverse when state actually changes)
-    if (this.hitFlash >= 0) {
+    // 5. Hit flash effect — uses cached material array (no traversal)
+    if (this.hitFlash >= 0 && this._cachedMaterials) {
       const flashActive = this.hitFlash > 0;
       const p2Tint = this.playerIndex === 1;
-      this.model.traverse(child => {
-        if (child.isMesh) {
-          const mats = Array.isArray(child.material) ? child.material : [child.material];
-          mats.forEach(m => {
-            if (!m.emissive) m.emissive = new THREE.Color();
-            if (flashActive) {
-              m.emissive.setScalar(0.5);
-            } else if (p2Tint) {
-              m.emissive.set(0.15, 0.02, 0.02);
-            } else {
-              m.emissive.setScalar(0);
-            }
-          });
+      for (let i = 0; i < this._cachedMaterials.length; i++) {
+        const m = this._cachedMaterials[i];
+        if (flashActive) {
+          m.emissive.setScalar(0.5);
+        } else if (p2Tint) {
+          m.emissive.set(0.15, 0.02, 0.02);
+        } else {
+          m.emissive.setScalar(0);
         }
-      });
-      // Stop traversing once flash is done
+      }
       if (!flashActive) this.hitFlash = -1;
     }
 

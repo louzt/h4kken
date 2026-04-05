@@ -36,9 +36,11 @@ export class Game {
       alpha: false,
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = false; // manual update only
+    this.renderer.shadowMap.needsUpdate = true; // initial render
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2;
 
@@ -63,8 +65,15 @@ export class Game {
     this.roundTimerAccum = 0;
     this.isPractice = false;
 
-    // Hit sparks (3D particles)
+    // Hit sparks — pooled particles
     this.hitParticles = [];
+    this._sparkPool = [];           // reusable spark meshes
+    this._sparkGeo = new THREE.SphereGeometry(0.03, 3, 3);
+    this._hitMats = [
+      new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true }),
+      new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true }),
+    ];
+    this._blockMat = new THREE.MeshBasicMaterial({ color: 0x4488ff, transparent: true });
 
     // Game loop timing
     this.clock = new THREE.Clock();
@@ -668,60 +677,64 @@ export class Game {
   // 3D HIT EFFECTS
   // ============================================================
 
+  _getPooledSpark(mat) {
+    let spark;
+    if (this._sparkPool.length > 0) {
+      spark = this._sparkPool.pop();
+      spark.material = mat;
+      spark.visible = true;
+    } else {
+      spark = new THREE.Mesh(this._sparkGeo, mat);
+      this.scene.add(spark);
+    }
+    return spark;
+  }
+
   spawnHitSpark(position, attackerFacingAngle) {
     const cosA = Math.cos(attackerFacingAngle);
     const sinA = Math.sin(attackerFacingAngle);
-    const count = 12;
+    const count = 8;
     for (let i = 0; i < count; i++) {
-      const geo = new THREE.SphereGeometry(0.03, 4, 4);
-      const mat = new THREE.MeshBasicMaterial({
-        color: Math.random() > 0.5 ? 0xff6600 : 0xffcc00,
-        transparent: true,
-      });
-      const spark = new THREE.Mesh(geo, mat);
+      const mat = this._hitMats[i & 1];
+      const spark = this._getPooledSpark(mat);
       spark.position.set(
         position.x + cosA * 0.5,
         position.y + 1.2 + (Math.random() - 0.5) * 0.5,
         position.z + sinA * 0.5 + (Math.random() - 0.5) * 0.3
       );
-      spark.userData = {
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.3) * 0.15 * cosA,
-          Math.random() * 0.12,
-          (Math.random() - 0.3) * 0.15 * sinA
-        ),
-        life: 1.0,
-        decay: 0.04 + Math.random() * 0.03,
-      };
-      this.scene.add(spark);
+      spark.scale.setScalar(1);
+      spark.material.opacity = 1;
+      spark.userData.velocity = spark.userData.velocity || new THREE.Vector3();
+      spark.userData.velocity.set(
+        (Math.random() - 0.3) * 0.15 * cosA,
+        Math.random() * 0.12,
+        (Math.random() - 0.3) * 0.15 * sinA
+      );
+      spark.userData.life = 1.0;
+      spark.userData.decay = 0.04 + Math.random() * 0.03;
       this.hitParticles.push(spark);
     }
   }
 
   spawnBlockSpark(position) {
-    const count = 6;
+    const count = 4;
     for (let i = 0; i < count; i++) {
-      const geo = new THREE.SphereGeometry(0.02, 4, 4);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x4488ff,
-        transparent: true,
-      });
-      const spark = new THREE.Mesh(geo, mat);
+      const spark = this._getPooledSpark(this._blockMat);
       spark.position.set(
         position.x,
         position.y + 1.2 + (Math.random() - 0.5) * 0.3,
         position.z + (Math.random() - 0.5) * 0.2
       );
-      spark.userData = {
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 0.1,
-          Math.random() * 0.08,
-          (Math.random() - 0.5) * 0.08
-        ),
-        life: 1.0,
-        decay: 0.06,
-      };
-      this.scene.add(spark);
+      spark.scale.setScalar(0.7);
+      spark.material.opacity = 1;
+      spark.userData.velocity = spark.userData.velocity || new THREE.Vector3();
+      spark.userData.velocity.set(
+        (Math.random() - 0.5) * 0.1,
+        Math.random() * 0.08,
+        (Math.random() - 0.5) * 0.08
+      );
+      spark.userData.life = 1.0;
+      spark.userData.decay = 0.06;
       this.hitParticles.push(spark);
     }
   }
@@ -732,14 +745,15 @@ export class Game {
       const d = p.userData;
       d.life -= d.decay;
       d.velocity.y -= 0.005; // gravity
-      p.position.add(d.velocity);
+      p.position.x += d.velocity.x;
+      p.position.y += d.velocity.y;
+      p.position.z += d.velocity.z;
       p.material.opacity = d.life;
       p.scale.setScalar(d.life);
 
       if (d.life <= 0) {
-        this.scene.remove(p);
-        p.geometry.dispose();
-        p.material.dispose();
+        p.visible = false;
+        this._sparkPool.push(p);
         this.hitParticles.splice(i, 1);
       }
     }
@@ -767,6 +781,11 @@ export class Game {
 
     // Update hit particles
     this.updateHitParticles(deltaTime);
+
+    // Refresh shadow map periodically (characters move slowly relative to shadow)
+    if (this.frame % 8 === 0) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
 
     // Render
     this.renderer.render(this.scene, this.camera);

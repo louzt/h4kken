@@ -16,7 +16,7 @@ export class Stage {
   build() {
     // Main arena platform (raised slightly)
     const arenaRadius = 14;
-    const platformGeo = new THREE.CylinderGeometry(arenaRadius, arenaRadius + 0.3, 0.6, 64);
+    const platformGeo = new THREE.CylinderGeometry(arenaRadius, arenaRadius + 0.3, 0.6, 32);
     const platformMat = new THREE.MeshStandardMaterial({
       color: 0xc8b89a,
       metalness: 0.15,
@@ -25,12 +25,11 @@ export class Stage {
     const platform = new THREE.Mesh(platformGeo, platformMat);
     platform.position.y = -0.3;
     platform.receiveShadow = true;
-    platform.castShadow = true;
     this.scene.add(platform);
     this.objects.push(platform);
 
     // Inner fighting area — darker polished stone
-    const fightAreaGeo = new THREE.CylinderGeometry(10, 10, 0.08, 64);
+    const fightAreaGeo = new THREE.CylinderGeometry(10, 10, 0.08, 32);
     const fightAreaMat = new THREE.MeshStandardMaterial({
       color: 0x8b7355,
       metalness: 0.3,
@@ -53,7 +52,7 @@ export class Stage {
     this.scene.add(centerLine);
 
     // Fighting ring boundary — golden accent ring
-    const ringGeo = new THREE.TorusGeometry(10, 0.08, 8, 64);
+    const ringGeo = new THREE.TorusGeometry(10, 0.08, 6, 32);
     const ringMat = new THREE.MeshStandardMaterial({
       color: 0xffd700, metalness: 0.8, roughness: 0.2,
       emissive: 0xaa8800, emissiveIntensity: 0.3,
@@ -65,7 +64,7 @@ export class Stage {
     this.objects.push(ring);
 
     // Outer edge ring
-    const outerRingGeo = new THREE.TorusGeometry(arenaRadius, 0.12, 8, 64);
+    const outerRingGeo = new THREE.TorusGeometry(arenaRadius, 0.12, 6, 32);
     const outerRingMat = new THREE.MeshStandardMaterial({
       color: 0x997744, metalness: 0.5, roughness: 0.4,
     });
@@ -77,9 +76,7 @@ export class Stage {
 
     // Ground plane beyond arena
     const groundGeo = new THREE.PlaneGeometry(200, 200);
-    const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x6b8f5e, metalness: 0.0, roughness: 0.9,
-    });
+    const groundMat = new THREE.MeshLambertMaterial({ color: 0x6b8f5e });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.6;
@@ -95,27 +92,24 @@ export class Stage {
       const pz = Math.sin(angle) * pillarDist;
 
       // Stone pillar base
-      const baseGeo = new THREE.CylinderGeometry(0.45, 0.55, 0.8, 8);
-      const baseMat = new THREE.MeshStandardMaterial({ color: 0x887766, roughness: 0.7 });
+      const baseGeo = new THREE.CylinderGeometry(0.45, 0.55, 0.8, 6);
+      const baseMat = new THREE.MeshLambertMaterial({ color: 0x887766 });
       const base = new THREE.Mesh(baseGeo, baseMat);
       base.position.set(px, 0.1, pz);
-      base.castShadow = true;
       this.scene.add(base);
 
       // Main column
-      const colGeo = new THREE.CylinderGeometry(0.3, 0.35, 5, 8);
-      const colMat = new THREE.MeshStandardMaterial({ color: 0x998877, metalness: 0.1, roughness: 0.6 });
+      const colGeo = new THREE.CylinderGeometry(0.3, 0.35, 5, 6);
+      const colMat = new THREE.MeshLambertMaterial({ color: 0x998877 });
       const col = new THREE.Mesh(colGeo, colMat);
       col.position.set(px, 3, pz);
-      col.castShadow = true;
       this.scene.add(col);
 
       // Top cap
-      const capGeo = new THREE.CylinderGeometry(0.5, 0.35, 0.4, 8);
-      const capMat = new THREE.MeshStandardMaterial({ color: 0xaa9977, metalness: 0.2, roughness: 0.5 });
+      const capGeo = new THREE.CylinderGeometry(0.5, 0.35, 0.4, 6);
+      const capMat = new THREE.MeshLambertMaterial({ color: 0xaa9977 });
       const cap = new THREE.Mesh(capGeo, capMat);
       cap.position.set(px, 5.7, pz);
-      cap.castShadow = true;
       this.scene.add(cap);
 
       // Brazier flame
@@ -133,7 +127,7 @@ export class Stage {
     this.setupLighting();
 
     // Sky dome — bright gradient
-    const skyGeo = new THREE.SphereGeometry(90, 32, 32);
+    const skyGeo = new THREE.SphereGeometry(90, 16, 16);
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
@@ -174,39 +168,29 @@ export class Stage {
   }
 
   setupLighting() {
-    // Strong ambient — characters always clearly visible
-    const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+    // Ambient + hemisphere gives a solid base; one directional for shadows
+    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
     this.scene.add(ambient);
 
-    // Hemisphere — natural sky+ground lighting
-    const hemi = new THREE.HemisphereLight(0x88bbff, 0x445522, 0.6);
+    // Hemisphere — natural sky+ground fill (replaces separate fill lights)
+    const hemi = new THREE.HemisphereLight(0x88bbff, 0x445522, 0.7);
     hemi.position.set(0, 20, 0);
     this.scene.add(hemi);
 
-    // Sun key light from above-right
+    // Sun key light — only shadow-casting light
     const sun = new THREE.DirectionalLight(0xfff5e0, 1.6);
     sun.position.set(8, 18, 10);
     sun.castShadow = true;
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 50;
-    sun.shadow.camera.left = -18;
-    sun.shadow.camera.right = 18;
-    sun.shadow.camera.top = 18;
-    sun.shadow.camera.bottom = -18;
-    sun.shadow.mapSize.width = 2048;
-    sun.shadow.mapSize.height = 2048;
+    sun.shadow.camera.left = -14;
+    sun.shadow.camera.right = 14;
+    sun.shadow.camera.top = 14;
+    sun.shadow.camera.bottom = -14;
+    sun.shadow.mapSize.width = 1024;
+    sun.shadow.mapSize.height = 1024;
     sun.shadow.bias = -0.001;
     this.scene.add(sun);
-
-    // Fill from opposite side
-    const fill = new THREE.DirectionalLight(0xaaccff, 0.5);
-    fill.position.set(-10, 10, -5);
-    this.scene.add(fill);
-
-    // Front fill — prevent dark camera-facing sides
-    const frontFill = new THREE.DirectionalLight(0xffeedd, 0.35);
-    frontFill.position.set(0, 5, 15);
-    this.scene.add(frontFill);
   }
 
   createBackdrop() {
@@ -222,10 +206,8 @@ export class Stage {
     ];
 
     mountainDefs.forEach(m => {
-      const geo = new THREE.ConeGeometry(m.r, m.h, 6);
-      const mat = new THREE.MeshStandardMaterial({
-        color: m.c, roughness: 0.9, flatShading: true
-      });
+      const geo = new THREE.ConeGeometry(m.r, m.h, 5);
+      const mat = new THREE.MeshLambertMaterial({ color: m.c, flatShading: true });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(m.x, m.h / 2 - 2, m.z);
       mesh.rotation.y = Math.random() * Math.PI;
@@ -234,30 +216,34 @@ export class Stage {
 
     // Snow caps on taller mountains
     mountainDefs.filter(m => m.h > 25).forEach(m => {
-      const capGeo = new THREE.ConeGeometry(m.r * 0.35, m.h * 0.2, 6);
-      const capMat = new THREE.MeshStandardMaterial({
-        color: 0xdde8dd, roughness: 0.7, flatShading: true
-      });
+      const capGeo = new THREE.ConeGeometry(m.r * 0.35, m.h * 0.2, 5);
+      const capMat = new THREE.MeshLambertMaterial({ color: 0xdde8dd, flatShading: true });
       const cap = new THREE.Mesh(capGeo, capMat);
       cap.position.set(m.x, m.h - 2, m.z);
       cap.rotation.y = Math.random() * Math.PI;
       this.scene.add(cap);
     });
 
-    // Trees around the arena
-    for (let i = 0; i < 20; i++) {
-      const angle = (i / 20) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+    // Trees around the arena (use shared geometries & materials to reduce draw calls)
+    const treeCount = 14;
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x664422 });
+    const leafMats = [
+      new THREE.MeshLambertMaterial({ color: 0x2e6b1e, flatShading: true }),
+      new THREE.MeshLambertMaterial({ color: 0x388526, flatShading: true }),
+      new THREE.MeshLambertMaterial({ color: 0x429f2e, flatShading: true }),
+    ];
+
+    for (let i = 0; i < treeCount; i++) {
+      const angle = (i / treeCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
       const dist = 20 + Math.random() * 12;
       const tx = Math.cos(angle) * dist;
       const tz = Math.sin(angle) * dist;
       const s = 0.7 + Math.random() * 0.8;
 
       // Trunk
-      const trunkGeo = new THREE.CylinderGeometry(0.15 * s, 0.25 * s, 3 * s, 6);
-      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x664422, roughness: 0.9 });
+      const trunkGeo = new THREE.CylinderGeometry(0.15 * s, 0.25 * s, 3 * s, 5);
       const trunk = new THREE.Mesh(trunkGeo, trunkMat);
       trunk.position.set(tx, 1.5 * s - 0.6, tz);
-      trunk.castShadow = true;
       this.scene.add(trunk);
 
       // Foliage layers
@@ -265,15 +251,10 @@ export class Stage {
         const r = (2.2 - j * 0.5) * s;
         const h = (2.0 - j * 0.3) * s;
         const y = (2.5 + j * 1.4) * s - 0.6;
-        const leafGeo = new THREE.ConeGeometry(r, h, 7);
-        const green = 0x2e6b1e + (j * 0x0a1a08);
-        const leafMat = new THREE.MeshStandardMaterial({
-          color: green, roughness: 0.8, flatShading: true
-        });
-        const leaf = new THREE.Mesh(leafGeo, leafMat);
+        const leafGeo = new THREE.ConeGeometry(r, h, 5);
+        const leaf = new THREE.Mesh(leafGeo, leafMats[j]);
         leaf.position.set(tx, y, tz);
         leaf.rotation.y = Math.random() * Math.PI;
-        leaf.castShadow = true;
         this.scene.add(leaf);
       }
     }
