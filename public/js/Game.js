@@ -130,6 +130,13 @@ export class Game {
     });
 
     this.network.on('countdown', (msg) => {
+      // Only accept countdown during ROUND_END or COUNTDOWN state
+      // to prevent stale countdown events from interrupting a live round
+      if (this.state !== GAME_STATE.ROUND_END && this.state !== GAME_STATE.COUNTDOWN) return;
+      if (msg.count === 3) {
+        // First countdown tick — ensure fighters are reset for the new round
+        this.startNextRound();
+      }
       if (msg.count > 0) {
         this.ui.showAnnouncement(`ROUND ${this.round}`, msg.count.toString(), 900);
       }
@@ -139,10 +146,32 @@ export class Game {
     this.network.on('fight', () => {
       this.ui.showAnnouncement('FIGHT!', '', 1000);
       this.state = GAME_STATE.FIGHTING;
+      this._roundResetting = false;
     });
 
     this.network.on('opponentInput', (msg) => {
       this.pendingOpponentInput = msg.input;
+    });
+
+    // Server broadcasts round result — ensure both clients transition properly
+    this.network.on('roundResult', (msg) => {
+      if (this.state === GAME_STATE.FIGHTING) {
+        // P2 might not have detected KO locally — force round end
+        this.state = GAME_STATE.ROUND_END;
+        const winnerIdx = msg.winner;
+        if (winnerIdx >= 0 && winnerIdx < 2) {
+          const winner = this.fighters[winnerIdx];
+          const loser = this.fighters[winnerIdx === 0 ? 1 : 0];
+          winner.wins = winnerIdx === 0 ? msg.p1Wins : msg.p2Wins;
+          loser.wins = winnerIdx === 0 ? msg.p2Wins : msg.p1Wins;
+          winner.setVictory();
+          loser.setDefeat();
+          this.fightCamera.setDramaticAngle(winner.position);
+          this.fightCamera.shake(0.3, 0.3);
+          this.ui.showAnnouncement('K.O.', '', 2000, 'ko');
+          this.ui.updateWins(this.fighters[this.localPlayerIndex].wins, this.fighters[1 - this.localPlayerIndex].wins, GC.ROUNDS_TO_WIN);
+        }
+      }
     });
 
     // P2 receives authoritative game state from P1
@@ -229,6 +258,7 @@ export class Game {
 
   prepareMatch() {
     this.round = 1;
+    this._roundResetting = false;
     this.fighters[0].reset(-3);
     this.fighters[1].reset(3);
     this.fighters[0].wins = 0;
@@ -280,6 +310,7 @@ export class Game {
       } else {
         this.ui.showAnnouncement('FIGHT!', '', 1000);
         this.state = GAME_STATE.FIGHTING;
+        this._roundResetting = false;
       }
     };
     this.state = GAME_STATE.COUNTDOWN;
@@ -578,7 +609,8 @@ export class Game {
     // Check for match end
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
 
-    if (!this.isPractice) {
+    // Only host (P1) sends roundResult to prevent duplicate server countdowns
+    if (!this.isPractice && this.localPlayerIndex === 0) {
       this.network.sendRoundResult(
         winnerIdx,
         this.fighters[0].wins,
@@ -608,7 +640,7 @@ export class Game {
       winnerIdx = 1;
     } else {
       // Draw - no wins awarded, replay the round
-      if (!this.isPractice) {
+      if (!this.isPractice && this.localPlayerIndex === 0) {
         this.network.sendRoundResult(-1, this.fighters[0].wins, this.fighters[1].wins, false);
       }
       this.ui.showAnnouncement('DRAW', 'TIME UP', 2000);
@@ -627,7 +659,8 @@ export class Game {
 
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
 
-    if (!this.isPractice) {
+    // Only host (P1) sends roundResult to prevent duplicate server countdowns
+    if (!this.isPractice && this.localPlayerIndex === 0) {
       this.network.sendRoundResult(
         winnerIdx,
         this.fighters[0].wins,
@@ -662,6 +695,10 @@ export class Game {
   }
 
   startNextRound() {
+    // Guard: prevent double-reset if called from both local timer and network event
+    if (this._roundResetting) return;
+    this._roundResetting = true;
+
     this.round++;
     this.fighters[0].reset(-3);
     this.fighters[1].reset(3);

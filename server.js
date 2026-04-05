@@ -188,6 +188,11 @@ wss.on('connection', (ws) => {
         const room = rooms.get(playerInfo.roomId);
         if (!room) return;
 
+        // Only accept roundResult while in 'fighting' state
+        // (prevents duplicate countdowns from both players sending roundResult)
+        if (room.state !== 'fighting') break;
+        room.state = 'roundEnd';
+
         // Relay round result
         broadcastToRoom(room, {
           type: 'roundResult',
@@ -200,8 +205,7 @@ wss.on('connection', (ws) => {
           room.state = 'matchEnd';
           setTimeout(() => destroyRoom(room.id), 5000);
         } else {
-          // Start next round countdown
-          room.state = 'countdown';
+          // Start next round countdown after delay
           setTimeout(() => startCountdown(room), 3000);
         }
         break;
