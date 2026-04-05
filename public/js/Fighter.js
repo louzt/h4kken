@@ -1334,6 +1334,13 @@ export class Fighter {
 
   // Serialize state for network
   serializeState() {
+    // Find the MOVES key for current move (command field is NOT unique across moves)
+    let moveKey = null;
+    if (this.currentMove) {
+      for (const [k, v] of Object.entries(MOVES)) {
+        if (v === this.currentMove) { moveKey = k; break; }
+      }
+    }
     return {
       px: this.position.x,
       py: this.position.y,
@@ -1345,8 +1352,9 @@ export class Fighter {
       facing: this.facing,
       facingAngle: this.facingAngle,
       health: this.health,
-      moveId: this.currentMove ? this.currentMove.command : null,
+      moveId: moveKey,
       moveFrame: this.moveFrame,
+      hasHitThisMove: this.hasHitThisMove,
       isCrouching: this.isCrouching,
       isBlocking: this.isBlocking,
       comboCount: this.comboCount,
@@ -1369,7 +1377,18 @@ export class Fighter {
     this.comboDamage = data.comboDamage;
     this.stunFrames = data.stunFrames;
     this.wins = data.wins;
-    
+
+    // Restore current move from network (critical for attack state + hitbox)
+    if (data.moveId && MOVES[data.moveId]) {
+      this.currentMove = MOVES[data.moveId];
+      this.moveFrame = data.moveFrame || 0;
+      this.hasHitThisMove = !!data.hasHitThisMove;
+    } else {
+      this.currentMove = null;
+      this.moveFrame = 0;
+      this.hasHitThisMove = false;
+    }
+
     // Update state and animation
     if (data.state !== this.state) {
       this.state = data.state;
@@ -1399,12 +1418,40 @@ export class Fighter {
       case FIGHTER_STATE.JUMP_BACKWARD:
         this.playAnimation('jump', 0.1);
         break;
+      case FIGHTER_STATE.ATTACKING:
+        // Restore attack animation from synced currentMove
+        if (this.currentMove) {
+          const animName = this.currentMove.animation;
+          const clip = this.animations[animName];
+          const totalFrames = this.currentMove.startupFrames + this.currentMove.activeFrames + this.currentMove.recoveryFrames;
+          const moveDuration = totalFrames / 60;
+          let speed = this.currentMove.animSpeed || 1.0;
+          if (clip && clip.duration > 0 && moveDuration > 0) {
+            speed = clip.duration / moveDuration;
+            speed = Math.max(0.3, Math.min(speed, 4.0));
+          }
+          this.playAnimation(animName, 0.1, speed);
+        }
+        break;
       case FIGHTER_STATE.HIT_STUN:
+      case FIGHTER_STATE.BLOCK_STUN:
         this.playAnimation('hurt1', 0.05);
         break;
       case FIGHTER_STATE.JUGGLE:
       case FIGHTER_STATE.KNOCKDOWN:
         this.playAnimation('falling', 0.1);
+        break;
+      case FIGHTER_STATE.SIDESTEP:
+        this.playAnimation(this.sideStepDir < 0 ? 'walkLeft' : 'walkRight', 0.1);
+        break;
+      case FIGHTER_STATE.DASH_BACK:
+        this.playAnimation('walkBack', 0.1);
+        break;
+      case FIGHTER_STATE.LANDING:
+        this.playAnimation('landing', 0.1);
+        break;
+      case FIGHTER_STATE.GETUP:
+        this.playAnimation('landing', 0.15);
         break;
       case FIGHTER_STATE.VICTORY:
         this.playAnimation('victory', 0.3);
