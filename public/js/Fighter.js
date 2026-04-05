@@ -55,7 +55,10 @@ export class Fighter {
     this.previousState = FIGHTER_STATE.IDLE;
     this.position = new THREE.Vector3(playerIndex === 0 ? -3 : 3, 0, 0);
     this.velocity = new THREE.Vector3(0, 0, 0);
-    this.facing = playerIndex === 0 ? 1 : -1;
+    // facing is always 1 for both players: right key = forward (toward opponent).
+    // The camera always shows the local player on the left, so right=forward
+    // is the correct screen-space mapping for everyone.
+    this.facing = 1;
     // Fight-axis angle: radians from +X axis toward opponent in world XZ plane
     this.facingAngle = playerIndex === 0 ? 0 : Math.PI;
     this.health = GC.MAX_HEALTH;
@@ -742,9 +745,8 @@ export class Fighter {
     this.runFrames = 0;
     this.landingTimer = 0;
     this.hitFlash = 0;
-    // facing is fixed per player: P1 (index 0) = 1, P2 (index 1) = -1
-    // This matches the camera which always shows P2 to the right of P1
-    this.facing = this.playerIndex === 0 ? 1 : -1;
+    // facing is always 1 (right=forward), facingAngle tracks world direction
+    this.facing = 1;
     this.facingAngle = startX < 0 ? 0 : Math.PI;
 
     this.playAnimation('combatIdle', 0.3);
@@ -1359,7 +1361,7 @@ export class Fighter {
     this.position.set(data.px, data.py, data.pz);
     this.velocity.set(data.vx, data.vy, data.vz);
     this.facing = data.facing;
-    this.facingAngle = data.facingAngle !== undefined ? data.facingAngle : (this.facing > 0 ? 0 : Math.PI);
+    this.facingAngle = data.facingAngle !== undefined ? data.facingAngle : (this.playerIndex === 0 ? 0 : Math.PI);
     this.health = data.health;
     this.isCrouching = data.isCrouching;
     this.isBlocking = data.isBlocking;

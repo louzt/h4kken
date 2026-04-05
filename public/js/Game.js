@@ -122,9 +122,8 @@ export class Game {
     this.network.on('matched', (msg) => {
       this.localPlayerIndex = msg.playerIndex;
       const myName = this.ui.playerNameInput.value || 'Player';
-      const p1Name = msg.playerIndex === 0 ? myName : msg.opponentName;
-      const p2Name = msg.playerIndex === 1 ? myName : msg.opponentName;
-      this.ui.setPlayerNames(p1Name, p2Name);
+      // Left HUD = local player, right HUD = opponent
+      this.ui.setPlayerNames(myName, msg.opponentName);
       this.ui.hideAllScreens();
       this.ui.showFightHud();
       this.prepareMatch();
@@ -236,7 +235,7 @@ export class Game {
     this.fighters[1].wins = 0;
     this.roundTimer = GC.ROUND_TIME;
     this.roundTimerAccum = 0;
-    this.ui.updateHealth(this.fighters[0].health, this.fighters[1].health, GC.MAX_HEALTH);
+    this.ui.updateHealth(this.fighters[this.localPlayerIndex].health, this.fighters[1 - this.localPlayerIndex].health, GC.MAX_HEALTH);
     this.ui.updateWins(0, 0, GC.ROUNDS_TO_WIN);
     this.ui.updateTimer(this.roundTimer);
     this.fightCamera.reset();
@@ -397,17 +396,19 @@ export class Game {
       }
     }
 
-    // Update HUD
-    this.ui.updateHealth(f1.health, f2.health, GC.MAX_HEALTH);
+    // Update HUD — show local player on left, opponent on right
+    const local = this.fighters[this.localPlayerIndex];
+    const remote = this.fighters[1 - this.localPlayerIndex];
+    this.ui.updateHealth(local.health, remote.health, GC.MAX_HEALTH);
 
-    // Combo display
-    if (f2.comboCount >= 2 && f2.comboTimer > 0) {
-      this.ui.updateCombo(0, f2.comboCount, f2.comboDamage);
+    // Combo display (side 0 = left HUD = local player's combo ON opponent)
+    if (remote.comboCount >= 2 && remote.comboTimer > 0) {
+      this.ui.updateCombo(0, remote.comboCount, remote.comboDamage);
     } else {
       this.ui.hideCombo(0);
     }
-    if (f1.comboCount >= 2 && f1.comboTimer > 0) {
-      this.ui.updateCombo(1, f1.comboCount, f1.comboDamage);
+    if (local.comboCount >= 2 && local.comboTimer > 0) {
+      this.ui.updateCombo(1, local.comboCount, local.comboDamage);
     } else {
       this.ui.hideCombo(1);
     }
@@ -483,9 +484,9 @@ export class Game {
     const dz = opponent.position.z - bot.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
-    // Determine which raw key = "forward" for this bot's facing
-    const fwd  = bot.facing > 0 ? 'right' : 'left';
-    const back = bot.facing > 0 ? 'left' : 'right';
+    // facing is always 1: right = forward, left = back
+    const fwd  = 'right';
+    const back = 'left';
 
     // Random behavior changes
     const rand = Math.random();
@@ -572,7 +573,7 @@ export class Game {
     this.fightCamera.shake(0.3, 0.3);
 
     this.ui.showAnnouncement('K.O.', '', 2000, 'ko');
-    this.ui.updateWins(this.fighters[0].wins, this.fighters[1].wins, GC.ROUNDS_TO_WIN);
+    this.ui.updateWins(this.fighters[this.localPlayerIndex].wins, this.fighters[1 - this.localPlayerIndex].wins, GC.ROUNDS_TO_WIN);
 
     // Check for match end
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
@@ -622,7 +623,7 @@ export class Game {
     loser.setDefeat();
 
     this.ui.showAnnouncement('TIME UP', '', 2000);
-    this.ui.updateWins(this.fighters[0].wins, this.fighters[1].wins, GC.ROUNDS_TO_WIN);
+    this.ui.updateWins(this.fighters[this.localPlayerIndex].wins, this.fighters[1 - this.localPlayerIndex].wins, GC.ROUNDS_TO_WIN);
 
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
 
@@ -644,7 +645,10 @@ export class Game {
 
   onMatchEnd(winnerIdx) {
     this.state = GAME_STATE.MATCH_END;
-    const winnerName = winnerIdx === 0 ? this.ui.p1Name.textContent : this.ui.p2Name.textContent;
+    // Left HUD name = local player, right = opponent
+    const winnerName = winnerIdx === this.localPlayerIndex
+      ? this.ui.p1Name.textContent   // local player won (shown on left)
+      : this.ui.p2Name.textContent;  // opponent won (shown on right)
     this.ui.showAnnouncement(winnerName, 'WINS!', 0, 'victory');
 
     setTimeout(() => {
@@ -771,9 +775,9 @@ export class Game {
     if (f1) f1.updateVisuals(deltaTime);
     if (f2) f2.updateVisuals(deltaTime);
 
-    // Update camera
+    // Update camera — local player always appears on left
     if (f1 && f2) {
-      this.fightCamera.update(f1.position, f2.position, deltaTime);
+      this.fightCamera.update(f1.position, f2.position, deltaTime, this.localPlayerIndex);
     }
 
     // Update stage

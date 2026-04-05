@@ -26,15 +26,18 @@ export class FightCamera {
     this.camera.lookAt(this.targetLookAt);
   }
 
-  update(fighter1Pos, fighter2Pos, deltaTime) {
+  update(fighter1Pos, fighter2Pos, deltaTime, localPlayerIndex = 0) {
     // Calculate midpoint between fighters
     const midX = (fighter1Pos.x + fighter2Pos.x) / 2;
     const midY = Math.max((fighter1Pos.y + fighter2Pos.y) / 2, 0);
     const midZ = (fighter1Pos.z + fighter2Pos.z) / 2;
 
-    // Fight axis: direction from P1 to P2
-    const dx = fighter2Pos.x - fighter1Pos.x;
-    const dz = fighter2Pos.z - fighter1Pos.z;
+    // Fight axis: direction from local player to opponent
+    // This ensures the local player is always on the LEFT side of the screen.
+    const localPos = localPlayerIndex === 0 ? fighter1Pos : fighter2Pos;
+    const remotePos = localPlayerIndex === 0 ? fighter2Pos : fighter1Pos;
+    const dx = remotePos.x - localPos.x;
+    const dz = remotePos.z - localPos.z;
     const fighterDist = Math.sqrt(dx * dx + dz * dz);
 
     // Camera orbit angle = perpendicular to fight axis
