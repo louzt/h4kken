@@ -86,6 +86,11 @@ export class Game {
     this.pendingOpponentInput = null;
     this.lastOpponentInput = this.emptyInput();
 
+    // Background music
+    this.bgm = new Audio('/assets/music/h4kken-theme.mp3');
+    this.bgm.loop = true;
+    this.bgm.volume = 0.5;
+
     // Bind
     this.gameLoop = this.gameLoop.bind(this);
     this.onResize = this.onResize.bind(this);
@@ -147,6 +152,7 @@ export class Game {
       this.ui.showAnnouncement('FIGHT!', '', 1000);
       this.state = GAME_STATE.FIGHTING;
       this._roundResetting = false;
+      this.playBGM();
     });
 
     this.network.on('opponentInput', (msg) => {
@@ -191,6 +197,7 @@ export class Game {
     });
 
     this.network.on('opponentLeft', () => {
+      this.stopBGM();
       this.ui.showAnnouncement('OPPONENT LEFT', '', 3000);
       setTimeout(() => {
         this.state = GAME_STATE.MENU;
@@ -202,6 +209,7 @@ export class Game {
 
     this.network.on('disconnected', () => {
       if (this.state !== GAME_STATE.MENU && this.state !== GAME_STATE.LOADING) {
+        this.stopBGM();
         this.ui.showAnnouncement('DISCONNECTED', '', 3000);
         setTimeout(() => {
           this.state = GAME_STATE.MENU;
@@ -311,6 +319,7 @@ export class Game {
         this.ui.showAnnouncement('FIGHT!', '', 1000);
         this.state = GAME_STATE.FIGHTING;
         this._roundResetting = false;
+        this.playBGM();
       }
     };
     this.state = GAME_STATE.COUNTDOWN;
@@ -592,6 +601,7 @@ export class Game {
 
   onKO(winnerIdx) {
     this.state = GAME_STATE.ROUND_END;
+    this.stopBGM();
     const winner = this.fighters[winnerIdx];
     const loser = this.fighters[winnerIdx === 0 ? 1 : 0];
 
@@ -628,6 +638,7 @@ export class Game {
 
   onTimeUp() {
     this.state = GAME_STATE.ROUND_END;
+    this.stopBGM();
 
     // Player with more health wins
     const f1 = this.fighters[0];
@@ -678,6 +689,7 @@ export class Game {
 
   onMatchEnd(winnerIdx) {
     this.state = GAME_STATE.MATCH_END;
+    this.stopBGM();
     // Left HUD name = local player, right = opponent
     const winnerName = winnerIdx === this.localPlayerIndex
       ? this.ui.p1Name.textContent   // local player won (shown on left)
@@ -836,5 +848,19 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  playBGM() {
+    if (this.bgm) {
+      this.bgm.currentTime = 0;
+      this.bgm.play().catch(() => {});
+    }
+  }
+
+  stopBGM() {
+    if (this.bgm) {
+      this.bgm.pause();
+      this.bgm.currentTime = 0;
+    }
   }
 }
