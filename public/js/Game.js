@@ -849,7 +849,7 @@ export class Game {
   }
 
   playBGM() {
-    if (this.bgm) {
+    if (this.bgm && this.bgm.paused) {
       this.bgm.currentTime = 0;
       this.bgm.play().catch(() => {});
     }
