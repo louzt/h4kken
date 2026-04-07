@@ -141,7 +141,6 @@ export class Game {
       if (msg.count === 3) {
         // First countdown tick — ensure fighters are reset for the new round
         this.startNextRound();
-        this.playBGM();
       }
       if (msg.count > 0) {
         this.ui.showAnnouncement(`ROUND ${this.round}`, msg.count.toString(), 900);
@@ -276,6 +275,7 @@ export class Game {
     this.ui.updateHealth(this.fighters[this.localPlayerIndex].health, this.fighters[1 - this.localPlayerIndex].health, GC.MAX_HEALTH);
     this.ui.updateWins(0, 0, GC.ROUNDS_TO_WIN);
     this.ui.updateTimer(this.roundTimer);
+    this.playBGM();
     this.fightCamera.reset();
     this.state = GAME_STATE.COUNTDOWN;
   }
@@ -310,7 +310,6 @@ export class Game {
 
   startPracticeCountdown() {
     let count = 3;
-    this.playBGM();
     const tick = () => {
       if (count > 0) {
         this.ui.showAnnouncement(`ROUND ${this.round}`, count.toString(), 900);
