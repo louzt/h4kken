@@ -275,7 +275,7 @@ export class Game {
     this.ui.updateHealth(this.fighters[this.localPlayerIndex].health, this.fighters[1 - this.localPlayerIndex].health, GC.MAX_HEALTH);
     this.ui.updateWins(0, 0, GC.ROUNDS_TO_WIN);
     this.ui.updateTimer(this.roundTimer);
-    this.playBGM();
+    setTimeout(() => this.playBGM(), 1000);
     this.fightCamera.reset();
     this.state = GAME_STATE.COUNTDOWN;
   }
