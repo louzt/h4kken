@@ -28,6 +28,8 @@ export interface InputState {
   sideStepDown?: boolean;
   dashLeft?: boolean;
   dashRight?: boolean;
+  dashForward?: boolean;
+  dashBack?: boolean;
 }
 
 export class InputManager {
@@ -158,7 +160,11 @@ export class InputManager {
         input.downJust = false;
       }
     } else {
-      if (this.downHeldFrames > 0 && this.downHeldFrames < this.holdThreshold && !this.downConsumed) {
+      if (
+        this.downHeldFrames > 0 &&
+        this.downHeldFrames < this.holdThreshold &&
+        !this.downConsumed
+      ) {
         input.sideStepDown = true;
       }
       this.downHeldFrames = 0;
@@ -208,12 +214,18 @@ export class InputManager {
 
   matchDirection(input: InputState, dir: string) {
     switch (dir) {
-      case 'down': return input.down && !input.forward && !input.back;
-      case 'forward': return input.forward && !input.down;
-      case 'back': return input.back && !input.down;
-      case 'df': return input.down && input.forward;
-      case 'db': return input.down && input.back;
-      default: return false;
+      case 'down':
+        return input.down && !input.forward && !input.back;
+      case 'forward':
+        return input.forward && !input.down;
+      case 'back':
+        return input.back && !input.down;
+      case 'df':
+        return input.down && input.forward;
+      case 'db':
+        return input.down && input.back;
+      default:
+        return false;
     }
   }
 

@@ -85,18 +85,22 @@ export class UI {
   }
 
   showScreen(screenId: string) {
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach((s) => {
+      s.classList.remove('active');
+    });
     const screen = document.getElementById(screenId);
     if (screen) screen.classList.add('active');
   }
 
   hideAllScreens() {
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach((s) => {
+      s.classList.remove('active');
+    });
   }
 
   setLoadingProgress(progress: number) {
     const pct = Math.round(progress * 100);
-    (this.loadingBar as HTMLElement).style.width = pct + '%';
+    (this.loadingBar as HTMLElement).style.width = `${pct}%`;
     (this.loadingText as HTMLElement).textContent = `Loading assets... ${pct}%`;
   }
 
@@ -121,12 +125,12 @@ export class UI {
     const p1Pct = Math.max(0, (p1Health / maxHealth) * 100);
     const p2Pct = Math.max(0, (p2Health / maxHealth) * 100);
 
-    (this.p1Health as HTMLElement).style.width = p1Pct + '%';
-    (this.p2Health as HTMLElement).style.width = p2Pct + '%';
+    (this.p1Health as HTMLElement).style.width = `${p1Pct}%`;
+    (this.p2Health as HTMLElement).style.width = `${p2Pct}%`;
 
     setTimeout(() => {
-      (this.p1HealthDamage as HTMLElement).style.width = p1Pct + '%';
-      (this.p2HealthDamage as HTMLElement).style.width = p2Pct + '%';
+      (this.p1HealthDamage as HTMLElement).style.width = `${p1Pct}%`;
+      (this.p2HealthDamage as HTMLElement).style.width = `${p2Pct}%`;
     }, 400);
 
     this.updateHealthColor(this.p1Health as HTMLElement, p1Pct);
@@ -157,11 +161,11 @@ export class UI {
 
     for (let i = 0; i < roundsToWin; i++) {
       const dot1 = document.createElement('div');
-      dot1.className = 'win-dot' + (i < p1Wins ? ' won' : '');
+      dot1.className = `win-dot${i < p1Wins ? ' won' : ''}`;
       (this.p1WinsEl as HTMLElement).appendChild(dot1);
 
       const dot2 = document.createElement('div');
-      dot2.className = 'win-dot' + (i < p2Wins ? ' won' : '');
+      dot2.className = `win-dot${i < p2Wins ? ' won' : ''}`;
       (this.p2WinsEl as HTMLElement).appendChild(dot2);
     }
   }
@@ -174,7 +178,7 @@ export class UI {
     if (hits >= 2) {
       (comboEl as HTMLElement).classList.remove('hidden');
       (hitsEl as HTMLElement).textContent = String(hits);
-      (damageEl as HTMLElement).textContent = damage + ' DMG';
+      (damageEl as HTMLElement).textContent = `${damage} DMG`;
     } else {
       (comboEl as HTMLElement).classList.add('hidden');
     }
@@ -189,7 +193,7 @@ export class UI {
     if (this.announcementTimer) clearTimeout(this.announcementTimer);
 
     (this.announceText as HTMLElement).textContent = text;
-    (this.announceText as HTMLElement).className = 'announce-text' + (cssClass ? ' ' + cssClass : '');
+    (this.announceText as HTMLElement).className = `announce-text${cssClass ? ` ${cssClass}` : ''}`;
     (this.announceSub as HTMLElement).textContent = sub;
     (this.announcement as HTMLElement).classList.remove('hidden');
 

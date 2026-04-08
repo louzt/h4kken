@@ -1,8 +1,8 @@
+import { createServer } from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +20,9 @@ app.use(express.static(path.join(__dirname, 'client')));
 
 app.post('/api/debug', (req, res) => {
   const lines = req.body.lines || [];
-  lines.forEach((l: string) => console.log('[BROWSER]', l));
+  lines.forEach((l: string) => {
+    console.log('[BROWSER]', l);
+  });
   res.json({ ok: true });
 });
 
@@ -31,11 +33,23 @@ interface PlayerInfo {
   playerIndex: number | null;
 }
 
+interface ClientMessage {
+  type: string;
+  name?: string;
+  frame?: number;
+  input?: unknown;
+  state?: unknown;
+  winner?: number;
+  p1Wins?: number;
+  p2Wins?: number;
+  matchOver?: boolean;
+}
+
 interface Room {
   id: string;
   players: [PlayerInfo, PlayerInfo];
   frame: number;
-  inputs: [any, any];
+  inputs: [unknown, unknown];
   state: 'countdown' | 'fighting' | 'roundEnd' | 'matchEnd';
   countdownTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -70,8 +84,8 @@ function destroyRoom(roomId: string) {
   const room = rooms.get(roomId);
   if (!room) return;
 
-  room.players.forEach(p => {
-    if (p && p.ws && p.ws.readyState === 1) {
+  room.players.forEach((p) => {
+    if (p?.ws && p.ws.readyState === 1) {
       p.roomId = null;
       p.playerIndex = null;
     }
@@ -82,13 +96,15 @@ function destroyRoom(roomId: string) {
 }
 
 function sendTo(playerInfo: PlayerInfo, message: object) {
-  if (playerInfo && playerInfo.ws && playerInfo.ws.readyState === 1) {
+  if (playerInfo?.ws && playerInfo.ws.readyState === 1) {
     playerInfo.ws.send(JSON.stringify(message));
   }
 }
 
 function broadcastToRoom(room: Room, message: object) {
-  room.players.forEach(p => sendTo(p, message));
+  room.players.forEach((p) => {
+    sendTo(p, message);
+  });
 }
 
 function startCountdown(room: Room) {
@@ -109,6 +125,118 @@ function startCountdown(room: Room) {
   tick();
 }
 
+function handleJoin(ws: import('ws').WebSocket, playerInfo: PlayerInfo, name: string | undefined) {
+  playerInfo.name = name || 'Player';
+
+  if (playerInfo.roomId) {
+    sendTo(playerInfo, { type: 'error', message: 'Already in a match' });
+    return;
+  }
+
+  const idx = waitingPlayers.findIndex((p) => p.ws !== ws && p.ws.readyState === 1);
+
+  if (idx >= 0) {
+    const opponent = waitingPlayers.splice(idx, 1)[0];
+    const room = createRoom(opponent, playerInfo);
+
+    sendTo(opponent, {
+      type: 'matched',
+      playerIndex: 0,
+      opponentName: playerInfo.name,
+      roomId: room.id,
+    });
+    sendTo(playerInfo, {
+      type: 'matched',
+      playerIndex: 1,
+      opponentName: opponent.name,
+      roomId: room.id,
+    });
+
+    setTimeout(() => startCountdown(room), 1000);
+  } else {
+    waitingPlayers.push(playerInfo);
+    sendTo(playerInfo, { type: 'waiting' });
+  }
+}
+
+function handleInput(playerInfo: PlayerInfo, msg: ClientMessage) {
+  if (!playerInfo.roomId) return;
+  const room = rooms.get(playerInfo.roomId);
+  if (!room || room.state !== 'fighting') return;
+
+  const opponentIdx = playerInfo.playerIndex === 0 ? 1 : 0;
+  const opponent = room.players[opponentIdx];
+
+  sendTo(opponent, {
+    type: 'opponentInput',
+    frame: msg.frame,
+    input: msg.input,
+  });
+}
+
+function handleGameState(playerInfo: PlayerInfo, msg: ClientMessage) {
+  if (!playerInfo.roomId || playerInfo.playerIndex !== 0) return;
+  const room = rooms.get(playerInfo.roomId);
+  if (!room) return;
+
+  const opponent = room.players[1];
+  sendTo(opponent, {
+    type: 'gameState',
+    state: msg.state,
+    frame: msg.frame,
+  });
+}
+
+function handleRoundResult(playerInfo: PlayerInfo, msg: ClientMessage) {
+  if (!playerInfo.roomId) return;
+  const room = rooms.get(playerInfo.roomId);
+  if (!room) return;
+
+  if (room.state !== 'fighting') return;
+  room.state = 'roundEnd';
+
+  broadcastToRoom(room, {
+    type: 'roundResult',
+    winner: msg.winner,
+    p1Wins: msg.p1Wins,
+    p2Wins: msg.p2Wins,
+  });
+
+  if (msg.matchOver) {
+    room.state = 'matchEnd';
+    setTimeout(() => destroyRoom(room.id), 5000);
+  } else {
+    setTimeout(() => startCountdown(room), 3000);
+  }
+}
+
+function handleLeave(playerInfo: PlayerInfo) {
+  if (playerInfo.roomId) {
+    const room = rooms.get(playerInfo.roomId);
+    if (room) {
+      const opponentIdx = playerInfo.playerIndex === 0 ? 1 : 0;
+      sendTo(room.players[opponentIdx], { type: 'opponentLeft' });
+      destroyRoom(room.id);
+    }
+  }
+  const waitIdx = waitingPlayers.indexOf(playerInfo);
+  if (waitIdx >= 0) waitingPlayers.splice(waitIdx, 1);
+}
+
+function handleClose(playerInfo: PlayerInfo) {
+  const waitIdx = waitingPlayers.indexOf(playerInfo);
+  if (waitIdx >= 0) waitingPlayers.splice(waitIdx, 1);
+
+  if (playerInfo.roomId) {
+    const room = rooms.get(playerInfo.roomId);
+    if (room) {
+      const opponentIdx = playerInfo.playerIndex === 0 ? 1 : 0;
+      sendTo(room.players[opponentIdx], { type: 'opponentLeft' });
+      destroyRoom(room.id);
+    }
+  }
+}
+
 wss.on('connection', (ws) => {
   const playerInfo: PlayerInfo = {
     ws,
@@ -118,134 +246,33 @@ wss.on('connection', (ws) => {
   };
 
   ws.on('message', (data) => {
-    let msg: any;
+    let msg: ClientMessage;
     try {
-      msg = JSON.parse(data.toString());
+      msg = JSON.parse(data.toString()) as ClientMessage;
     } catch {
       return;
     }
 
     switch (msg.type) {
-      case 'join': {
-        playerInfo.name = msg.name || 'Player';
-
-        if (playerInfo.roomId) {
-          sendTo(playerInfo, { type: 'error', message: 'Already in a match' });
-          return;
-        }
-
-        const idx = waitingPlayers.findIndex(
-          p => p.ws !== ws && p.ws.readyState === 1
-        );
-
-        if (idx >= 0) {
-          const opponent = waitingPlayers.splice(idx, 1)[0];
-          const room = createRoom(opponent, playerInfo);
-
-          sendTo(opponent, {
-            type: 'matched',
-            playerIndex: 0,
-            opponentName: playerInfo.name,
-            roomId: room.id,
-          });
-          sendTo(playerInfo, {
-            type: 'matched',
-            playerIndex: 1,
-            opponentName: opponent.name,
-            roomId: room.id,
-          });
-
-          setTimeout(() => startCountdown(room), 1000);
-        } else {
-          waitingPlayers.push(playerInfo);
-          sendTo(playerInfo, { type: 'waiting' });
-        }
+      case 'join':
+        handleJoin(ws, playerInfo, msg.name);
         break;
-      }
-
-      case 'input': {
-        if (!playerInfo.roomId) return;
-        const room = rooms.get(playerInfo.roomId);
-        if (!room || room.state !== 'fighting') return;
-
-        const opponentIdx = playerInfo.playerIndex === 0 ? 1 : 0;
-        const opponent = room.players[opponentIdx];
-
-        sendTo(opponent, {
-          type: 'opponentInput',
-          frame: msg.frame,
-          input: msg.input,
-        });
+      case 'input':
+        handleInput(playerInfo, msg);
         break;
-      }
-
-      case 'gameState': {
-        if (!playerInfo.roomId || playerInfo.playerIndex !== 0) return;
-        const room = rooms.get(playerInfo.roomId);
-        if (!room) return;
-
-        const opponent = room.players[1];
-        sendTo(opponent, {
-          type: 'gameState',
-          state: msg.state,
-          frame: msg.frame,
-        });
+      case 'gameState':
+        handleGameState(playerInfo, msg);
         break;
-      }
-
-      case 'roundResult': {
-        if (!playerInfo.roomId) return;
-        const room = rooms.get(playerInfo.roomId);
-        if (!room) return;
-
-        if (room.state !== 'fighting') break;
-        room.state = 'roundEnd';
-
-        broadcastToRoom(room, {
-          type: 'roundResult',
-          winner: msg.winner,
-          p1Wins: msg.p1Wins,
-          p2Wins: msg.p2Wins,
-        });
-
-        if (msg.matchOver) {
-          room.state = 'matchEnd';
-          setTimeout(() => destroyRoom(room.id), 5000);
-        } else {
-          setTimeout(() => startCountdown(room), 3000);
-        }
+      case 'roundResult':
+        handleRoundResult(playerInfo, msg);
         break;
-      }
-
-      case 'leave': {
-        if (playerInfo.roomId) {
-          const room = rooms.get(playerInfo.roomId);
-          if (room) {
-            const opponentIdx = playerInfo.playerIndex === 0 ? 1 : 0;
-            sendTo(room.players[opponentIdx], { type: 'opponentLeft' });
-            destroyRoom(room.id);
-          }
-        }
-        const waitIdx = waitingPlayers.indexOf(playerInfo);
-        if (waitIdx >= 0) waitingPlayers.splice(waitIdx, 1);
+      case 'leave':
+        handleLeave(playerInfo);
         break;
-      }
     }
   });
 
-  ws.on('close', () => {
-    const waitIdx = waitingPlayers.indexOf(playerInfo);
-    if (waitIdx >= 0) waitingPlayers.splice(waitIdx, 1);
-
-    if (playerInfo.roomId) {
-      const room = rooms.get(playerInfo.roomId);
-      if (room) {
-        const opponentIdx = playerInfo.playerIndex === 0 ? 1 : 0;
-        sendTo(room.players[opponentIdx], { type: 'opponentLeft' });
-        destroyRoom(room.id);
-      }
-    }
-  });
+  ws.on('close', () => handleClose(playerInfo));
 });
 
 server.listen(PORT, () => {

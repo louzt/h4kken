@@ -3,17 +3,17 @@
 // ============================================================
 
 import * as THREE from 'three';
-import { Fighter } from './Fighter';
-import { CombatSystem, FIGHTER_STATE, GAME_CONSTANTS } from './Combat';
-import { InputManager } from './Input';
 import { FightCamera } from './Camera';
+import { CombatSystem, FIGHTER_STATE, GAME_CONSTANTS } from './Combat';
+import { Fighter, type SharedAssets } from './Fighter';
+import { InputManager, type InputState } from './Input';
+import { Network } from './Network';
 import { Stage } from './Stage';
 import { UI } from './UI';
-import { Network } from './Network';
 
 const GC = GAME_CONSTANTS;
 
-export const GAME_STATE = {
+const GAME_STATE = {
   LOADING: 'loading',
   MENU: 'menu',
   WAITING: 'waiting',
@@ -37,7 +37,7 @@ export class Game {
   network: Network;
   fighters: [Fighter | null, Fighter | null];
   localPlayerIndex: number;
-  sharedAssets: any;
+  sharedAssets: SharedAssets | null;
   round: number;
   roundTimer: number;
   roundTimerAccum: number;
@@ -52,8 +52,8 @@ export class Game {
   tickDuration: number;
   accumulator: number;
   frame: number;
-  pendingOpponentInput: any;
-  lastOpponentInput: any;
+  pendingOpponentInput: InputState | null;
+  lastOpponentInput: InputState;
   bgm: HTMLAudioElement;
   gameLoop: () => void;
   onResize: () => void;
@@ -126,23 +126,37 @@ export class Game {
     this.setupNetworkEvents();
   }
 
-  emptyInput() {
+  emptyInput(): InputState {
     return {
-      up: false, down: false, left: false, right: false,
-      lp: false, rp: false, lk: false, rk: false,
-      upJust: false, downJust: false, leftJust: false, rightJust: false,
-      lpJust: false, rpJust: false, lkJust: false, rkJust: false,
-      dashLeft: false, dashRight: false,
-      sideStepUp: false, sideStepDown: false,
+      up: false,
+      down: false,
+      left: false,
+      right: false,
+      lp: false,
+      rp: false,
+      lk: false,
+      rk: false,
+      upJust: false,
+      downJust: false,
+      leftJust: false,
+      rightJust: false,
+      lpJust: false,
+      rpJust: false,
+      lkJust: false,
+      rkJust: false,
+      dashLeft: false,
+      dashRight: false,
+      sideStepUp: false,
+      sideStepDown: false,
     };
   }
 
   setupUIEvents() {
-    this.ui.btnFindMatch!.addEventListener('click', () => this.findMatch());
-    this.ui.btnPractice!.addEventListener('click', () => this.startPractice());
-    this.ui.btnControls!.addEventListener('click', () => this.ui.showScreen('controls-screen'));
-    this.ui.btnBackControls!.addEventListener('click', () => this.ui.showScreen('menu-screen'));
-    this.ui.btnCancelSearch!.addEventListener('click', () => this.cancelSearch());
+    this.ui.btnFindMatch?.addEventListener('click', () => this.findMatch());
+    this.ui.btnPractice?.addEventListener('click', () => this.startPractice());
+    this.ui.btnControls?.addEventListener('click', () => this.ui.showScreen('controls-screen'));
+    this.ui.btnBackControls?.addEventListener('click', () => this.ui.showScreen('menu-screen'));
+    this.ui.btnCancelSearch?.addEventListener('click', () => this.cancelSearch());
   }
 
   setupNetworkEvents() {
@@ -185,8 +199,9 @@ export class Game {
         this.state = GAME_STATE.ROUND_END;
         const winnerIdx = msg.winner;
         if (winnerIdx >= 0 && winnerIdx < 2) {
-          const winner = this.fighters[winnerIdx]!;
-          const loser = this.fighters[winnerIdx === 0 ? 1 : 0]!;
+          const winner = this.fighters[winnerIdx];
+          const loser = this.fighters[winnerIdx === 0 ? 1 : 0];
+          if (!winner || !loser) return;
           winner.wins = winnerIdx === 0 ? msg.p1Wins : msg.p2Wins;
           loser.wins = winnerIdx === 0 ? msg.p2Wins : msg.p1Wins;
           winner.setVictory();
@@ -195,9 +210,9 @@ export class Game {
           this.fightCamera.shake(0.3, 0.3);
           this.ui.showAnnouncement('K.O.', '', 2000, 'ko');
           this.ui.updateWins(
-            this.fighters[this.localPlayerIndex]!.wins,
-            this.fighters[1 - this.localPlayerIndex]!.wins,
-            GC.ROUNDS_TO_WIN
+            this.fighters[this.localPlayerIndex]?.wins ?? 0,
+            this.fighters[1 - this.localPlayerIndex]?.wins ?? 0,
+            GC.ROUNDS_TO_WIN,
           );
         }
       }
@@ -258,7 +273,7 @@ export class Game {
 
     try {
       await this.network.connect();
-    } catch (e) {
+    } catch (_e) {
       console.warn('Could not connect to server. Only practice mode available.');
     }
 
@@ -271,6 +286,7 @@ export class Game {
   }
 
   createFighters() {
+    if (!this.sharedAssets) throw new Error('SharedAssets not loaded');
     const { baseModel, animClips, texture } = this.sharedAssets;
 
     this.fighters[0] = new Fighter(0, this.scene);
@@ -283,13 +299,17 @@ export class Game {
   prepareMatch() {
     this.round = 1;
     this._roundResetting = false;
-    this.fighters[0]!.reset(-3);
-    this.fighters[1]!.reset(3);
-    this.fighters[0]!.wins = 0;
-    this.fighters[1]!.wins = 0;
+    this.fighters[0]?.reset(-3);
+    this.fighters[1]?.reset(3);
+    if (this.fighters[0]) this.fighters[0].wins = 0;
+    if (this.fighters[1]) this.fighters[1].wins = 0;
     this.roundTimer = GC.ROUND_TIME;
     this.roundTimerAccum = 0;
-    this.ui.updateHealth(this.fighters[this.localPlayerIndex]!.health, this.fighters[1 - this.localPlayerIndex]!.health, GC.MAX_HEALTH);
+    this.ui.updateHealth(
+      this.fighters[this.localPlayerIndex]?.health ?? 0,
+      this.fighters[1 - this.localPlayerIndex]?.health ?? 0,
+      GC.MAX_HEALTH,
+    );
     this.ui.updateWins(0, 0, GC.ROUNDS_TO_WIN);
     this.ui.updateTimer(this.roundTimer);
     setTimeout(() => this.playBGM(), 1000);
@@ -365,45 +385,11 @@ export class Game {
 
     if (this.state !== GAME_STATE.FIGHTING && this.state !== GAME_STATE.PRACTICE) return;
 
-    const f1 = this.fighters[0]!;
-    const f2 = this.fighters[1]!;
+    const f1 = this.fighters[0];
+    const f2 = this.fighters[1];
+    if (!f1 || !f2) return;
 
-    let p1Input: any, p2Input: any;
-
-    if (this.isPractice) {
-      p1Input = rawInput;
-      p2Input = this.getSimpleBotInput(f2, f1);
-    } else {
-      const opponentHeld = { ...this.lastOpponentInput };
-      opponentHeld.upJust = false;
-      opponentHeld.downJust = false;
-      opponentHeld.leftJust = false;
-      opponentHeld.rightJust = false;
-      opponentHeld.lpJust = false;
-      opponentHeld.rpJust = false;
-      opponentHeld.lkJust = false;
-      opponentHeld.rkJust = false;
-      opponentHeld.dashLeft = false;
-      opponentHeld.dashRight = false;
-      opponentHeld.sideStepUp = false;
-      opponentHeld.sideStepDown = false;
-
-      const opInput = this.pendingOpponentInput || opponentHeld;
-      if (this.pendingOpponentInput) {
-        this.lastOpponentInput = { ...this.pendingOpponentInput };
-        this.pendingOpponentInput = null;
-      }
-
-      if (this.localPlayerIndex === 0) {
-        p1Input = rawInput;
-        p2Input = opInput;
-        this.network.sendInput(this.frame, this.serializeInput(rawInput));
-      } else {
-        p1Input = opInput;
-        p2Input = rawInput;
-        this.network.sendInput(this.frame, this.serializeInput(rawInput));
-      }
-    }
+    const [p1Input, p2Input] = this.buildInputs(rawInput);
 
     f1.processInput(p1Input, f2.position);
     f2.processInput(p2Input, f1.position);
@@ -437,8 +423,8 @@ export class Game {
       }
     }
 
-    const local = this.fighters[this.localPlayerIndex]!;
-    const remote = this.fighters[1 - this.localPlayerIndex]!;
+    const local = this.localPlayerIndex === 0 ? f1 : f2;
+    const remote = this.localPlayerIndex === 0 ? f2 : f1;
     this.ui.updateHealth(local.health, remote.health, GC.MAX_HEALTH);
 
     if (remote.comboCount >= 2 && remote.comboTimer > 0) {
@@ -462,19 +448,64 @@ export class Game {
     }
   }
 
+  private buildInputs(rawInput: InputState): [InputState, InputState] {
+    let p1Input: InputState, p2Input: InputState;
+
+    if (this.isPractice) {
+      const f2 = this.fighters[1];
+      const f1 = this.fighters[0];
+      p1Input = rawInput;
+      p2Input = f1 && f2 ? this.getSimpleBotInput(f2, f1) : this.emptyInput();
+    } else {
+      const opponentHeld = { ...this.lastOpponentInput };
+      opponentHeld.upJust = false;
+      opponentHeld.downJust = false;
+      opponentHeld.leftJust = false;
+      opponentHeld.rightJust = false;
+      opponentHeld.lpJust = false;
+      opponentHeld.rpJust = false;
+      opponentHeld.lkJust = false;
+      opponentHeld.rkJust = false;
+      opponentHeld.dashLeft = false;
+      opponentHeld.dashRight = false;
+      opponentHeld.sideStepUp = false;
+      opponentHeld.sideStepDown = false;
+
+      const opInput = this.pendingOpponentInput || opponentHeld;
+      if (this.pendingOpponentInput) {
+        this.lastOpponentInput = { ...this.pendingOpponentInput };
+        this.pendingOpponentInput = null;
+      }
+
+      if (this.localPlayerIndex === 0) {
+        p1Input = rawInput;
+        p2Input = opInput;
+        this.network.sendInput(this.frame, this.serializeInput(rawInput));
+      } else {
+        p1Input = opInput;
+        p2Input = rawInput;
+        this.network.sendInput(this.frame, this.serializeInput(rawInput));
+      }
+    }
+
+    return [p1Input, p2Input];
+  }
+
   resolveCombat(attacker: Fighter, defender: Fighter) {
     if (!attacker.isAttackActive()) return;
+    if (!attacker.currentMove) return;
+    const move = attacker.currentMove;
 
     const hit = CombatSystem.checkHitbox(
       attacker.position,
       attacker.facingAngle,
-      attacker.currentMove,
-      defender.position
+      move,
+      defender.position,
     );
 
     if (!hit) return;
 
-    const result = CombatSystem.resolveHit(attacker, defender, attacker.currentMove);
+    const result = CombatSystem.resolveHit(attacker, defender, move);
 
     if (result.type === 'whiff') {
       attacker.hasHitThisMove = true;
@@ -513,24 +544,21 @@ export class Game {
     }
   }
 
-  getSimpleBotInput(bot: Fighter, opponent: Fighter) {
-    const input: any = this.emptyInput();
+  getSimpleBotInput(bot: Fighter, opponent: Fighter): InputState {
+    const input: InputState = this.emptyInput();
     const dx = opponent.position.x - bot.position.x;
     const dz = opponent.position.z - bot.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
-    const fwd  = 'right';
-    const back = 'left';
-
     const rand = Math.random();
 
     if (dist > 3) {
-      input[fwd] = true;
+      input.right = true;
     } else if (dist > 1.5) {
       if (rand < 0.3) {
-        input[fwd] = true;
+        input.right = true;
       } else if (rand < 0.5) {
-        input[back] = true;
+        input.left = true;
       }
       if (rand > 0.95) {
         input.lpJust = true;
@@ -543,11 +571,11 @@ export class Game {
       } else if (rand < 0.25) {
         input.rpJust = true;
         input.rp = true;
-      } else if (rand < 0.30) {
+      } else if (rand < 0.3) {
         input.lkJust = true;
         input.lk = true;
       } else if (rand < 0.45) {
-        input[back] = true;
+        input.left = true;
       } else if (rand < 0.48) {
         input.down = true;
         if (Math.random() < 0.3) {
@@ -558,22 +586,34 @@ export class Game {
     }
 
     if (bot.state === FIGHTER_STATE.HIT_STUN || bot.state === FIGHTER_STATE.BLOCK_STUN) {
-      input[back] = true;
+      input.left = true;
     }
 
     return input;
   }
 
-  serializeInput(input: any) {
+  serializeInput(input: InputState): InputState {
     return {
-      up: input.up, down: input.down, left: input.left, right: input.right,
-      lp: input.lp, rp: input.rp, lk: input.lk, rk: input.rk,
-      upJust: input.upJust, downJust: input.downJust,
-      leftJust: input.leftJust, rightJust: input.rightJust,
-      lpJust: input.lpJust, rpJust: input.rpJust,
-      lkJust: input.lkJust, rkJust: input.rkJust,
-      dashLeft: input.dashLeft, dashRight: input.dashRight,
-      sideStepUp: input.sideStepUp, sideStepDown: input.sideStepDown,
+      up: input.up,
+      down: input.down,
+      left: input.left,
+      right: input.right,
+      lp: input.lp,
+      rp: input.rp,
+      lk: input.lk,
+      rk: input.rk,
+      upJust: input.upJust,
+      downJust: input.downJust,
+      leftJust: input.leftJust,
+      rightJust: input.rightJust,
+      lpJust: input.lpJust,
+      rpJust: input.rpJust,
+      lkJust: input.lkJust,
+      rkJust: input.rkJust,
+      dashLeft: input.dashLeft,
+      dashRight: input.dashRight,
+      sideStepUp: input.sideStepUp,
+      sideStepDown: input.sideStepDown,
     };
   }
 
@@ -583,8 +623,9 @@ export class Game {
 
   onKO(winnerIdx: number) {
     this.state = GAME_STATE.ROUND_END;
-    const winner = this.fighters[winnerIdx]!;
-    const loser = this.fighters[winnerIdx === 0 ? 1 : 0]!;
+    const winner = this.fighters[winnerIdx];
+    const loser = this.fighters[winnerIdx === 0 ? 1 : 0];
+    if (!winner || !loser) return;
 
     winner.wins++;
     winner.setVictory();
@@ -594,16 +635,20 @@ export class Game {
     this.fightCamera.shake(0.3, 0.3);
 
     this.ui.showAnnouncement('K.O.', '', 2000, 'ko');
-    this.ui.updateWins(this.fighters[this.localPlayerIndex]!.wins, this.fighters[1 - this.localPlayerIndex]!.wins, GC.ROUNDS_TO_WIN);
+    this.ui.updateWins(
+      this.fighters[this.localPlayerIndex]?.wins ?? 0,
+      this.fighters[1 - this.localPlayerIndex]?.wins ?? 0,
+      GC.ROUNDS_TO_WIN,
+    );
 
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
 
     if (!this.isPractice && this.localPlayerIndex === 0) {
       this.network.sendRoundResult(
         winnerIdx,
-        this.fighters[0]!.wins,
-        this.fighters[1]!.wins,
-        matchOver
+        this.fighters[0]?.wins ?? 0,
+        this.fighters[1]?.wins ?? 0,
+        matchOver,
       );
     }
 
@@ -617,8 +662,9 @@ export class Game {
   onTimeUp() {
     this.state = GAME_STATE.ROUND_END;
 
-    const f1 = this.fighters[0]!;
-    const f2 = this.fighters[1]!;
+    const f1 = this.fighters[0];
+    const f2 = this.fighters[1];
+    if (!f1 || !f2) return;
     let winnerIdx: number;
 
     if (f1.health > f2.health) {
@@ -634,23 +680,27 @@ export class Game {
       return;
     }
 
-    const winner = this.fighters[winnerIdx]!;
-    const loser = this.fighters[winnerIdx === 0 ? 1 : 0]!;
+    const winner = winnerIdx === 0 ? f1 : f2;
+    const loser = winnerIdx === 0 ? f2 : f1;
     winner.wins++;
     winner.setVictory();
     loser.setDefeat();
 
     this.ui.showAnnouncement('TIME UP', '', 2000);
-    this.ui.updateWins(this.fighters[this.localPlayerIndex]!.wins, this.fighters[1 - this.localPlayerIndex]!.wins, GC.ROUNDS_TO_WIN);
+    this.ui.updateWins(
+      this.fighters[this.localPlayerIndex]?.wins ?? 0,
+      this.fighters[1 - this.localPlayerIndex]?.wins ?? 0,
+      GC.ROUNDS_TO_WIN,
+    );
 
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
 
     if (!this.isPractice && this.localPlayerIndex === 0) {
       this.network.sendRoundResult(
         winnerIdx,
-        this.fighters[0]!.wins,
-        this.fighters[1]!.wins,
-        matchOver
+        this.fighters[0]?.wins ?? 0,
+        this.fighters[1]?.wins ?? 0,
+        matchOver,
       );
     }
 
@@ -664,9 +714,10 @@ export class Game {
   onMatchEnd(winnerIdx: number) {
     this.state = GAME_STATE.MATCH_END;
     this.stopBGM();
-    const winnerName = winnerIdx === this.localPlayerIndex
-      ? (this.ui.p1Name as HTMLElement).textContent
-      : (this.ui.p2Name as HTMLElement).textContent;
+    const winnerName =
+      winnerIdx === this.localPlayerIndex
+        ? (this.ui.p1Name as HTMLElement).textContent
+        : (this.ui.p2Name as HTMLElement).textContent;
     this.ui.showAnnouncement(winnerName || '', 'WINS!', 0, 'victory');
 
     setTimeout(() => {
@@ -684,8 +735,8 @@ export class Game {
     this._roundResetting = true;
 
     this.round++;
-    this.fighters[0]!.reset(-3);
-    this.fighters[1]!.reset(3);
+    this.fighters[0]?.reset(-3);
+    this.fighters[1]?.reset(3);
     this.roundTimer = GC.ROUND_TIME;
     this.roundTimerAccum = 0;
     this.ui.updateTimer(this.roundTimer);
@@ -703,8 +754,9 @@ export class Game {
 
   _getPooledSpark(mat: THREE.Material) {
     let spark: THREE.Mesh;
-    if (this._sparkPool.length > 0) {
-      spark = this._sparkPool.pop()!;
+    const pooled = this._sparkPool.pop();
+    if (pooled !== undefined) {
+      spark = pooled;
       spark.material = mat;
       spark.visible = true;
     } else {
@@ -724,18 +776,18 @@ export class Game {
       spark.position.set(
         position.x + cosA * 0.5,
         position.y + 1.2 + (Math.random() - 0.5) * 0.5,
-        position.z + sinA * 0.5 + (Math.random() - 0.5) * 0.3
+        position.z + sinA * 0.5 + (Math.random() - 0.5) * 0.3,
       );
       spark.scale.setScalar(1);
       (spark.material as THREE.MeshBasicMaterial).opacity = 1;
-      spark.userData['velocity'] = spark.userData['velocity'] || new THREE.Vector3();
-      spark.userData['velocity'].set(
+      spark.userData.velocity = spark.userData.velocity || new THREE.Vector3();
+      spark.userData.velocity.set(
         (Math.random() - 0.3) * 0.15 * cosA,
         Math.random() * 0.12,
-        (Math.random() - 0.3) * 0.15 * sinA
+        (Math.random() - 0.3) * 0.15 * sinA,
       );
-      spark.userData['life'] = 1.0;
-      spark.userData['decay'] = 0.04 + Math.random() * 0.03;
+      spark.userData.life = 1.0;
+      spark.userData.decay = 0.04 + Math.random() * 0.03;
       this.hitParticles.push(spark);
     }
   }
@@ -747,18 +799,18 @@ export class Game {
       spark.position.set(
         position.x,
         position.y + 1.2 + (Math.random() - 0.5) * 0.3,
-        position.z + (Math.random() - 0.5) * 0.2
+        position.z + (Math.random() - 0.5) * 0.2,
       );
       spark.scale.setScalar(0.7);
       (spark.material as THREE.MeshBasicMaterial).opacity = 1;
-      spark.userData['velocity'] = spark.userData['velocity'] || new THREE.Vector3();
-      spark.userData['velocity'].set(
+      spark.userData.velocity = spark.userData.velocity || new THREE.Vector3();
+      spark.userData.velocity.set(
         (Math.random() - 0.5) * 0.1,
         Math.random() * 0.08,
-        (Math.random() - 0.5) * 0.08
+        (Math.random() - 0.5) * 0.08,
       );
-      spark.userData['life'] = 1.0;
-      spark.userData['decay'] = 0.06;
+      spark.userData.life = 1.0;
+      spark.userData.decay = 0.06;
       this.hitParticles.push(spark);
     }
   }
@@ -768,15 +820,15 @@ export class Game {
       const p = this.hitParticles[i];
       if (!p) continue;
       const d = p.userData;
-      d['life'] -= d['decay'];
-      d['velocity'].y -= 0.005;
-      p.position.x += d['velocity'].x;
-      p.position.y += d['velocity'].y;
-      p.position.z += d['velocity'].z;
-      (p.material as THREE.MeshBasicMaterial).opacity = d['life'];
-      p.scale.setScalar(d['life']);
+      d.life -= d.decay;
+      d.velocity.y -= 0.005;
+      p.position.x += d.velocity.x;
+      p.position.y += d.velocity.y;
+      p.position.z += d.velocity.z;
+      (p.material as THREE.MeshBasicMaterial).opacity = d.life;
+      p.scale.setScalar(d.life);
 
-      if (d['life'] <= 0) {
+      if (d.life <= 0) {
         p.visible = false;
         this._sparkPool.push(p);
         this.hitParticles.splice(i, 1);
@@ -817,7 +869,7 @@ export class Game {
   }
 
   playBGM() {
-    if (this.bgm && this.bgm.paused) {
+    if (this.bgm?.paused) {
       this.bgm.currentTime = 0;
       this.bgm.play().catch(() => {});
     }

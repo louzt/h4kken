@@ -2,13 +2,132 @@
 // H4KKEN - Network Client
 // ============================================================
 
+import type { InputState } from './Input';
+
+// ── Inbound messages (server → client) ──────────────────────
+
+interface MatchedMsg {
+  type: 'matched';
+  playerIndex: number;
+  opponentName: string;
+  roomId: string;
+}
+
+interface CountdownMsg {
+  type: 'countdown';
+  count: number;
+}
+
+interface OpponentInputMsg {
+  type: 'opponentInput';
+  input: InputState;
+  frame: number;
+}
+
+interface GameStateMsg {
+  type: 'gameState';
+  frame: number;
+  state: {
+    p1: FighterStateSync;
+    p2: FighterStateSync;
+    timer: number;
+    round: number;
+  };
+}
+
+interface RoundResultMsg {
+  type: 'roundResult';
+  winner: number;
+  p1Wins: number;
+  p2Wins: number;
+  matchOver: boolean;
+}
+
+interface ErrorMsg {
+  type: 'error';
+  message: string;
+}
+
+interface SimpleMsg {
+  type: 'waiting' | 'fight' | 'opponentLeft';
+}
+
+type ServerMessage =
+  | SimpleMsg
+  | MatchedMsg
+  | CountdownMsg
+  | OpponentInputMsg
+  | GameStateMsg
+  | RoundResultMsg
+  | ErrorMsg;
+
+// Serialized fighter state used for network sync
+export interface FighterStateSync {
+  px: number;
+  py: number;
+  pz: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  state: string;
+  facing: number;
+  facingAngle: number;
+  health: number;
+  moveId: string | null;
+  moveFrame: number;
+  hasHitThisMove: boolean;
+  isCrouching: boolean;
+  isBlocking: boolean;
+  comboCount: number;
+  comboDamage: number;
+  stunFrames: number;
+  wins: number;
+}
+
+// ── Outbound messages (client → server) ─────────────────────
+
+type JoinMsg = { type: 'join'; name: string };
+type InputMsg = { type: 'input'; frame: number; input: InputState };
+type GameStateOutMsg = {
+  type: 'gameState';
+  frame: number;
+  state: { p1: FighterStateSync; p2: FighterStateSync; timer: number; round: number };
+};
+type RoundResultOutMsg = {
+  type: 'roundResult';
+  winner: number;
+  p1Wins: number;
+  p2Wins: number;
+  matchOver: boolean;
+};
+type LeaveMsg = { type: 'leave' };
+
+type ClientMessage = JoinMsg | InputMsg | GameStateOutMsg | RoundResultOutMsg | LeaveMsg;
+
+// ── Event handler map ────────────────────────────────────────
+
+type HandlerMap = {
+  waiting: () => void;
+  fight: () => void;
+  opponentLeft: () => void;
+  disconnected: () => void;
+  matched: (msg: MatchedMsg) => void;
+  countdown: (msg: CountdownMsg) => void;
+  opponentInput: (msg: OpponentInputMsg) => void;
+  gameState: (msg: GameStateMsg) => void;
+  roundResult: (msg: RoundResultMsg) => void;
+  error: (msg: ErrorMsg) => void;
+};
+
+type EventName = keyof HandlerMap;
+
 export class Network {
   ws: WebSocket | null;
   connected: boolean;
   playerIndex: number;
   opponentName: string;
   roomId: string | null;
-  handlers: Record<string, Array<(data?: any) => void>>;
+  private handlers: { [K in EventName]?: Array<HandlerMap[K]> };
 
   constructor() {
     this.ws = null;
@@ -19,15 +138,21 @@ export class Network {
     this.handlers = {};
   }
 
-  on(event: string, handler: (data?: any) => void) {
-    if (!this.handlers[event]) this.handlers[event] = [];
-    this.handlers[event].push(handler);
+  on<K extends EventName>(event: K, handler: HandlerMap[K]) {
+    if (!this.handlers[event]) {
+      this.handlers[event] = [] as NonNullable<(typeof this.handlers)[K]>;
+    }
+    (this.handlers[event] as Array<HandlerMap[K]>).push(handler);
   }
 
-  emit(event: string, data?: any) {
-    if (this.handlers[event]) {
-      this.handlers[event].forEach(h => h(data));
-    }
+  private emit<K extends EventName>(event: K, ...args: Parameters<HandlerMap[K]>) {
+    const list = this.handlers[event] as
+      | Array<(...a: Parameters<HandlerMap[K]>) => void>
+      | undefined;
+    if (list)
+      list.forEach((h) => {
+        h(...args);
+      });
   }
 
   connect() {
@@ -52,13 +177,13 @@ export class Network {
       };
 
       this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+        const msg = JSON.parse(event.data as string) as ServerMessage;
         this.handleMessage(msg);
       };
     });
   }
 
-  handleMessage(msg: any) {
+  private handleMessage(msg: ServerMessage) {
     switch (msg.type) {
       case 'waiting':
         this.emit('waiting');
@@ -93,7 +218,7 @@ export class Network {
     }
   }
 
-  send(msg: any) {
+  private send(msg: ClientMessage) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
@@ -103,11 +228,11 @@ export class Network {
     this.send({ type: 'join', name });
   }
 
-  sendInput(frame: number, input: any) {
+  sendInput(frame: number, input: InputState) {
     this.send({ type: 'input', frame, input });
   }
 
-  sendGameState(frame: number, state: any) {
+  sendGameState(frame: number, state: GameStateOutMsg['state']) {
     this.send({ type: 'gameState', frame, state });
   }
 

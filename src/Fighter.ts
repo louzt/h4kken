@@ -6,34 +6,48 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
-  FIGHTER_STATE, GAME_CONSTANTS, CombatSystem, MOVES, HIT_RESULT
+  CombatSystem,
+  FIGHTER_STATE,
+  GAME_CONSTANTS,
+  HIT_RESULT,
+  type HitResult,
+  MOVES,
+  type MoveData,
 } from './Combat';
+import type { InputState } from './Input';
+import type { FighterStateSync } from './Network';
+
+export interface SharedAssets {
+  baseModel: THREE.Object3D;
+  animClips: Record<string, THREE.AnimationClip>;
+  texture: THREE.Texture;
+}
 
 const GC = GAME_CONSTANTS;
 
 const ANIM_FILES: Record<string, string> = {
-  idle:         'Arnold_Idle.fbx',
-  combatIdle:   'Arnold_Combat_Idle.fbx',
-  crouchIdle:   'Arnold_Crouch_Idle.fbx',
-  crouchWalk:   'Arnold_Crouch_Walk.fbx',
-  walk:         'Arnold_Walk.fbx',
-  walkBack:     'Arnold_Walk_Backwards.fbx',
-  walkLeft:     'Arnold_Walk_Left.fbx',
-  walkRight:    'Arnold_Walk_Right.fbx',
-  run:          'Arnold_Run.fbx',
-  runBack:      'Arnold_Run_back.fbx',
-  sprint:       'Arnold_Sprint.fbx',
-  jump:         'Arnold_Jump.fbx',
-  falling:      'Arnold_Falling.fbx',
-  landing:      'Arnold_Landing.fbx',
-  punch1:       'Arnold_Punch_01.fbx',
-  punch2:       'Arnold_Punch_02.fbx',
-  heavyPunch:   'Arnold_Heavy_Punch.fbx',
-  hurt1:        'Arnold_Hurt_01.fbx',
-  hurt2:        'Arnold_Hurt_02.fbx',
-  leanRight:    'Arnold_Lean_Right.fbx',
-  leanLeft:     'Arnold_Left_Left.fbx',
-  victory:      'Arnold_Victory.fbx',
+  idle: 'Arnold_Idle.fbx',
+  combatIdle: 'Arnold_Combat_Idle.fbx',
+  crouchIdle: 'Arnold_Crouch_Idle.fbx',
+  crouchWalk: 'Arnold_Crouch_Walk.fbx',
+  walk: 'Arnold_Walk.fbx',
+  walkBack: 'Arnold_Walk_Backwards.fbx',
+  walkLeft: 'Arnold_Walk_Left.fbx',
+  walkRight: 'Arnold_Walk_Right.fbx',
+  run: 'Arnold_Run.fbx',
+  runBack: 'Arnold_Run_back.fbx',
+  sprint: 'Arnold_Sprint.fbx',
+  jump: 'Arnold_Jump.fbx',
+  falling: 'Arnold_Falling.fbx',
+  landing: 'Arnold_Landing.fbx',
+  punch1: 'Arnold_Punch_01.fbx',
+  punch2: 'Arnold_Punch_02.fbx',
+  heavyPunch: 'Arnold_Heavy_Punch.fbx',
+  hurt1: 'Arnold_Hurt_01.fbx',
+  hurt2: 'Arnold_Hurt_02.fbx',
+  leanRight: 'Arnold_Lean_Right.fbx',
+  leanLeft: 'Arnold_Left_Left.fbx',
+  victory: 'Arnold_Victory.fbx',
 };
 
 export class Fighter {
@@ -44,7 +58,7 @@ export class Fighter {
   animations: Record<string, THREE.AnimationClip>;
   actions: Record<string, THREE.AnimationAction>;
   currentAction: THREE.AnimationAction | null;
-  skeleton: any;
+  skeleton: THREE.Skeleton | null;
   state: string;
   previousState: string;
   position: THREE.Vector3;
@@ -53,7 +67,7 @@ export class Fighter {
   facingAngle: number;
   health: number;
   maxHealth: number;
-  currentMove: any;
+  currentMove: MoveData | null;
   moveFrame: number;
   hasHitThisMove: boolean;
   isBlocking: boolean;
@@ -133,7 +147,7 @@ export class Fighter {
   static retargetClip(clip: THREE.AnimationClip, validNodeNames: Set<string>) {
     for (const track of clip.tracks) {
       const propMatch = track.name.match(
-        /\.(position|quaternion|scale|morphTargetInfluences|visible)(\[.*\])?$/
+        /\.(position|quaternion|scale|morphTargetInfluences|visible)(\[.*\])?$/,
       );
       if (!propMatch) continue;
 
@@ -163,80 +177,146 @@ export class Fighter {
     return clip;
   }
 
-  static trimClip(clip: THREE.AnimationClip, padBefore = 0.1) {
-    const threshold = 0.005;
+  private static quatVelocity(vals: Float32Array, i: number, dt: number): number {
+    const stride = 4;
+    let diff = 0;
+    for (let c = 0; c < stride; c++) {
+      const a = vals[i * stride + c];
+      const b = vals[(i - 1) * stride + c];
+      if (a === undefined || b === undefined) continue;
+      const d = a - b;
+      diff += d * d;
+    }
+    return Math.sqrt(diff) / dt;
+  }
 
+  private static trackMotionRange(
+    track: THREE.KeyframeTrack,
+    threshold: number,
+    firstMotion: number,
+    lastMotion: number,
+  ): { firstMotion: number; lastMotion: number } {
+    const times = track.times;
+    const vals = track.values;
+    for (let i = 1; i < times.length; i++) {
+      const curr = times[i];
+      const prev = times[i - 1];
+      if (curr === undefined || prev === undefined) continue;
+      const dt = curr - prev;
+      if (dt <= 0) continue;
+      const vel = Fighter.quatVelocity(vals, i, dt);
+      if (vel > threshold) {
+        if (prev < firstMotion) firstMotion = prev;
+        if (curr > lastMotion) lastMotion = curr;
+      }
+    }
+    return { firstMotion, lastMotion };
+  }
+
+  private static findMotionRange(
+    clip: THREE.AnimationClip,
+    threshold: number,
+  ): { firstMotion: number; lastMotion: number } {
     let firstMotion = clip.duration;
     let lastMotion = 0;
 
     for (const track of clip.tracks) {
       if (!track.name.includes('.quaternion')) continue;
       if (track.name.startsWith('root.') || track.name.startsWith('pelvis.')) continue;
-
-      const times = track.times;
-      const vals = track.values;
-      const stride = 4;
-      for (let i = 1; i < times.length; i++) {
-        const dt = times[i]! - times[i - 1]!;
-        if (dt <= 0) continue;
-        let diff = 0;
-        for (let c = 0; c < stride; c++) {
-          const d = vals[i * stride + c]! - vals[(i - 1) * stride + c]!;
-          diff += d * d;
-        }
-        const vel = Math.sqrt(diff) / dt;
-        if (vel > threshold) {
-          if (times[i - 1]! < firstMotion) firstMotion = times[i - 1]!;
-          if (times[i]! > lastMotion) lastMotion = times[i]!;
-        }
-      }
+      ({ firstMotion, lastMotion } = Fighter.trackMotionRange(
+        track,
+        threshold,
+        firstMotion,
+        lastMotion,
+      ));
     }
 
-    if (firstMotion >= lastMotion || firstMotion < 0.15) return clip;
+    return { firstMotion, lastMotion };
+  }
 
-    const trimStart = Math.max(0, firstMotion - padBefore);
-    const trimEnd = clip.duration;
-
+  private static buildTrimmedTracks(
+    clip: THREE.AnimationClip,
+    trimStart: number,
+    trimEnd: number,
+  ): THREE.KeyframeTrack[] {
     const newTracks: THREE.KeyframeTrack[] = [];
+
     for (const track of clip.tracks) {
       const times = track.times;
       const vals = track.values;
       const valSize = vals.length / times.length;
 
       let iStart = 0;
-      while (iStart < times.length - 1 && times[iStart + 1]! < trimStart) iStart++;
+      while (iStart < times.length - 1) {
+        const nextTime = times[iStart + 1];
+        if (nextTime !== undefined && nextTime < trimStart) {
+          iStart++;
+        } else {
+          break;
+        }
+      }
+
       let iEnd = times.length - 1;
-      while (iEnd > 0 && times[iEnd - 1]! > trimEnd) iEnd--;
+      while (iEnd > 0) {
+        const prevTime = times[iEnd - 1];
+        if (prevTime !== undefined && prevTime > trimEnd) {
+          iEnd--;
+        } else {
+          break;
+        }
+      }
 
       const count = iEnd - iStart + 1;
       if (count < 2) {
         const newTimes = new Float32Array([0, trimEnd - trimStart]);
         const newVals = new Float32Array(valSize * 2);
         for (let c = 0; c < valSize; c++) {
-          newVals[c] = vals[iStart * valSize + c]!;
-          newVals[valSize + c] = vals[iStart * valSize + c]!;
+          const v = vals[iStart * valSize + c];
+          if (v !== undefined) {
+            newVals[c] = v;
+            newVals[valSize + c] = v;
+          }
         }
-        newTracks.push(new THREE.KeyframeTrack(track.name, Array.from(newTimes), Array.from(newVals)));
+        newTracks.push(
+          new THREE.KeyframeTrack(track.name, Array.from(newTimes), Array.from(newVals)),
+        );
         continue;
       }
 
       const newTimes = new Float32Array(count);
       const newVals = new Float32Array(count * valSize);
       for (let i = 0; i < count; i++) {
-        newTimes[i] = times[iStart + i]! - trimStart;
+        const t = times[iStart + i];
+        newTimes[i] = t !== undefined ? t - trimStart : 0;
         for (let c = 0; c < valSize; c++) {
-          newVals[i * valSize + c] = vals[(iStart + i) * valSize + c]!;
+          const v = vals[(iStart + i) * valSize + c];
+          if (v !== undefined) newVals[i * valSize + c] = v;
         }
       }
-      if (newTimes[0]! > 0) newTimes[0] = 0;
+      if ((newTimes[0] ?? 0) > 0) newTimes[0] = 0;
 
-      newTracks.push(new THREE.KeyframeTrack(track.name, Array.from(newTimes), Array.from(newVals)));
+      newTracks.push(
+        new THREE.KeyframeTrack(track.name, Array.from(newTimes), Array.from(newVals)),
+      );
     }
+
+    return newTracks;
+  }
+
+  static trimClip(clip: THREE.AnimationClip, padBefore = 0.1) {
+    const threshold = 0.005;
+    const { firstMotion, lastMotion } = Fighter.findMotionRange(clip, threshold);
+
+    if (firstMotion >= lastMotion || firstMotion < 0.15) return clip;
+
+    const trimStart = Math.max(0, firstMotion - padBefore);
+    const trimEnd = clip.duration;
+    const newTracks = Fighter.buildTrimmedTracks(clip, trimStart, trimEnd);
 
     return new THREE.AnimationClip(clip.name, trimEnd - trimStart, newTracks);
   }
 
-  static async loadAssets(onProgress?: (p: number) => void) {
+  static async loadAssets(onProgress?: (p: number) => void): Promise<SharedAssets> {
     const loader = new FBXLoader();
     const basePath = 'assets/models/';
     const texturePath = 'assets/textures/BaseColor.png';
@@ -249,11 +329,11 @@ export class Fighter {
       if (onProgress) onProgress(loaded / totalFiles);
     };
 
-    const baseModel = await loader.loadAsync(basePath + 'Arnold.fbx');
+    const baseModel = await loader.loadAsync(`${basePath}Arnold.fbx`);
     report();
 
     const validNodeNames = new Set<string>();
-    baseModel.traverse(node => {
+    baseModel.traverse((node) => {
       if (node.name) validNodeNames.add(node.name);
     });
     console.log('[H4KKEN] Base model nodes:', [...validNodeNames]);
@@ -262,15 +342,15 @@ export class Fighter {
     const texture = await textureLoader.loadAsync(texturePath);
     texture.colorSpace = THREE.SRGBColorSpace;
 
-    baseModel.traverse(child => {
+    baseModel.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         child.castShadow = true;
         child.receiveShadow = true;
         const mesh = child as THREE.Mesh;
         if (mesh.material) {
           const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          materials.forEach((mat: any) => {
-            mat.map = texture;
+          materials.forEach((mat: THREE.Material) => {
+            (mat as THREE.MeshStandardMaterial).map = texture;
             mat.needsUpdate = true;
           });
         }
@@ -284,11 +364,11 @@ export class Fighter {
       const batch = animEntries.slice(i, i + 4);
       const results = await Promise.all(
         batch.map(([name, file]) =>
-          loader.loadAsync(basePath + file).then(fbx => {
+          loader.loadAsync(basePath + file).then((fbx) => {
             report();
             return { name, fbx };
-          })
-        )
+          }),
+        ),
       );
       results.forEach(({ name, fbx }) => {
         if (fbx.animations && fbx.animations.length > 0) {
@@ -302,7 +382,7 @@ export class Fighter {
           clip = Fighter.trimClip(clip);
 
           console.log(
-            `[H4KKEN] Anim "${name}": ${origDur.toFixed(2)}s → trimmed ${clip.duration.toFixed(2)}s, ${clip.tracks.length} tracks`
+            `[H4KKEN] Anim "${name}": ${origDur.toFixed(2)}s → trimmed ${clip.duration.toFixed(2)}s, ${clip.tracks.length} tracks`,
           );
           animClips[name] = clip;
         } else {
@@ -316,8 +396,11 @@ export class Fighter {
     return { baseModel, animClips, texture };
   }
 
-  static createProceduralKicks(baseModel: THREE.Object3D, animClips: Record<string, THREE.AnimationClip>) {
-    const idleClip = animClips['combatIdle'];
+  static createProceduralKicks(
+    _baseModel: THREE.Object3D,
+    animClips: Record<string, THREE.AnimationClip>,
+  ) {
+    const idleClip = animClips.combatIdle;
     if (!idleClip) return;
     const idlePose: Record<string, THREE.Quaternion> = {};
     const idlePos: Record<string, THREE.Vector3> = {};
@@ -325,23 +408,24 @@ export class Fighter {
     for (const track of idleClip.tracks) {
       const dotIdx = track.name.lastIndexOf('.');
       const boneName = track.name.substring(0, dotIdx);
-      const prop     = track.name.substring(dotIdx + 1);
+      const prop = track.name.substring(dotIdx + 1);
 
       if (prop === 'quaternion' && track.values.length >= 4) {
         idlePose[boneName] = new THREE.Quaternion(
-          track.values[0], track.values[1], track.values[2], track.values[3]
+          track.values[0],
+          track.values[1],
+          track.values[2],
+          track.values[3],
         );
       } else if (prop === 'position' && track.values.length >= 3) {
-        idlePos[boneName] = new THREE.Vector3(
-          track.values[0], track.values[1], track.values[2]
-        );
+        idlePos[boneName] = new THREE.Vector3(track.values[0], track.values[1], track.values[2]);
       }
     }
 
-    const THIGH_R_FWD = new THREE.Vector3( 0.017, -0.322,  0.940).normalize();
-    const THIGH_L_FWD = new THREE.Vector3( 0.039,  0.583, -0.808).normalize();
-    const CALF_R_EXT  = new THREE.Vector3(-0.576, -0.287,  0.749).normalize();
-    const CALF_L_EXT  = new THREE.Vector3( 0.576, -0.287,  0.749).normalize();
+    const THIGH_R_FWD = new THREE.Vector3(0.017, -0.322, 0.94).normalize();
+    const THIGH_L_FWD = new THREE.Vector3(0.039, 0.583, -0.808).normalize();
+    const CALF_R_EXT = new THREE.Vector3(-0.576, -0.287, 0.749).normalize();
+    const CALF_L_EXT = new THREE.Vector3(0.576, -0.287, 0.749).normalize();
 
     function offsetQ(boneName: string, axis: THREE.Vector3, angle: number) {
       const base = idlePose[boneName];
@@ -357,237 +441,253 @@ export class Fighter {
       return base.clone().multiply(off);
     }
 
-    function buildKickClip(name: string, duration: number, boneAnims: Record<string, any[]>) {
+    interface BoneKeyframe {
+      t: number;
+      q?: THREE.Quaternion;
+    }
+    interface PelvisKeyframe {
+      t: number;
+      dx?: number;
+      dy?: number;
+      dz?: number;
+    }
+    interface KickBoneAnims {
+      [bone: string]: BoneKeyframe[] | PelvisKeyframe[] | undefined;
+      _pelvisShift?: PelvisKeyframe[];
+    }
+
+    function buildKickClip(name: string, duration: number, boneAnims: KickBoneAnims) {
       const tracks: THREE.KeyframeTrack[] = [];
-      const animBones = new Set(Object.keys(boneAnims).filter(k => !k.startsWith('_')));
+      const animBones = new Set(Object.keys(boneAnims).filter((k) => !k.startsWith('_')));
 
       for (const [boneName, q] of Object.entries(idlePose)) {
         if (animBones.has(boneName)) {
-          const kfs = boneAnims[boneName];
+          const kfs = boneAnims[boneName] as BoneKeyframe[] | undefined;
           if (!kfs) continue;
-          const times  = new Float32Array(kfs.map((kf: any) => kf.t));
+          const times = new Float32Array(kfs.map((kf) => kf.t));
           const values = new Float32Array(kfs.length * 4);
           for (let i = 0; i < kfs.length; i++) {
-            const qv = kfs[i].q;
-            values[i * 4]     = qv.x;
+            const kf = kfs[i];
+            const qv = kf?.q;
+            if (!qv) continue;
+            values[i * 4] = qv.x;
             values[i * 4 + 1] = qv.y;
             values[i * 4 + 2] = qv.z;
             values[i * 4 + 3] = qv.w;
           }
-          tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${boneName}.quaternion`, Array.from(times), Array.from(values)
-          ));
+          tracks.push(
+            new THREE.QuaternionKeyframeTrack(
+              `${boneName}.quaternion`,
+              Array.from(times),
+              Array.from(values),
+            ),
+          );
         } else {
-          tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${boneName}.quaternion`,
-            [0, duration],
-            [q.x, q.y, q.z, q.w, q.x, q.y, q.z, q.w]
-          ));
+          tracks.push(
+            new THREE.QuaternionKeyframeTrack(
+              `${boneName}.quaternion`,
+              [0, duration],
+              [q.x, q.y, q.z, q.w, q.x, q.y, q.z, q.w],
+            ),
+          );
         }
       }
 
       for (const [boneName, pos] of Object.entries(idlePos)) {
-        if (boneAnims['_pelvisShift'] && boneName === 'pelvis') {
-          const pk = boneAnims['_pelvisShift'];
-          const times  = new Float32Array(pk.map((kf: any) => kf.t));
+        if (boneAnims._pelvisShift && boneName === 'pelvis') {
+          const pk = boneAnims._pelvisShift;
+          const times = new Float32Array(pk.map((kf) => kf.t));
           const values = new Float32Array(pk.length * 3);
           for (let i = 0; i < pk.length; i++) {
-            values[i * 3]     = pos.x + (pk[i].dx || 0);
-            values[i * 3 + 1] = pos.y + (pk[i].dy || 0);
-            values[i * 3 + 2] = pos.z + (pk[i].dz || 0);
+            const pkf = pk[i];
+            values[i * 3] = pos.x + (pkf?.dx || 0);
+            values[i * 3 + 1] = pos.y + (pkf?.dy || 0);
+            values[i * 3 + 2] = pos.z + (pkf?.dz || 0);
           }
-          tracks.push(new THREE.VectorKeyframeTrack(
-            'pelvis.position', Array.from(times), Array.from(values)
-          ));
+          tracks.push(
+            new THREE.VectorKeyframeTrack('pelvis.position', Array.from(times), Array.from(values)),
+          );
         } else {
-          tracks.push(new THREE.VectorKeyframeTrack(
-            `${boneName}.position`,
-            [0, duration],
-            [pos.x, pos.y, pos.z, pos.x, pos.y, pos.z]
-          ));
+          tracks.push(
+            new THREE.VectorKeyframeTrack(
+              `${boneName}.position`,
+              [0, duration],
+              [pos.x, pos.y, pos.z, pos.x, pos.y, pos.z],
+            ),
+          );
         }
       }
 
       const clip = new THREE.AnimationClip(name, duration, tracks);
-      console.log(`[H4KKEN] Procedural "${name}": ${clip.duration.toFixed(2)}s, ${clip.tracks.length} tracks`);
+      console.log(
+        `[H4KKEN] Procedural "${name}": ${clip.duration.toFixed(2)}s, ${clip.tracks.length} tracks`,
+      );
       return clip;
     }
 
-    const idle = (bone: string) => idlePose[bone] ? idlePose[bone].clone() : new THREE.Quaternion();
-    const aa   = (bone: string, axis: THREE.Vector3, angle: number) => offsetQ(bone, axis, angle);
-    const eu   = (bone: string, rx: number, ry: number, rz: number)  => eulerOffsetQ(bone, rx, ry, rz);
+    const idle = (bone: string) =>
+      idlePose[bone] ? idlePose[bone].clone() : new THREE.Quaternion();
+    const aa = (bone: string, axis: THREE.Vector3, angle: number) => offsetQ(bone, axis, angle);
+    const eu = (bone: string, rx: number, ry: number, rz: number) => eulerOffsetQ(bone, rx, ry, rz);
 
-    animClips['kickRight'] = buildKickClip('kickRight', 0.50, {
-      'thigh_r': [
-        { t: 0.00, q: idle('thigh_r') },
+    animClips.kickRight = buildKickClip('kickRight', 0.5, {
+      thigh_r: [
+        { t: 0.0, q: idle('thigh_r') },
         { t: 0.08, q: aa('thigh_r', THIGH_R_FWD, -0.25) },
-        { t: 0.20, q: aa('thigh_r', THIGH_R_FWD,  1.35) },
-        { t: 0.35, q: aa('thigh_r', THIGH_R_FWD,  1.15) },
-        { t: 0.50, q: idle('thigh_r') },
+        { t: 0.2, q: aa('thigh_r', THIGH_R_FWD, 1.35) },
+        { t: 0.35, q: aa('thigh_r', THIGH_R_FWD, 1.15) },
+        { t: 0.5, q: idle('thigh_r') },
       ],
-      'calf_r': [
-        { t: 0.00, q: idle('calf_r') },
+      calf_r: [
+        { t: 0.0, q: idle('calf_r') },
         { t: 0.08, q: aa('calf_r', CALF_R_EXT, -0.5) },
-        { t: 0.20, q: aa('calf_r', CALF_R_EXT,  0.65) },
-        { t: 0.35, q: aa('calf_r', CALF_R_EXT,  0.55) },
-        { t: 0.50, q: idle('calf_r') },
+        { t: 0.2, q: aa('calf_r', CALF_R_EXT, 0.65) },
+        { t: 0.35, q: aa('calf_r', CALF_R_EXT, 0.55) },
+        { t: 0.5, q: idle('calf_r') },
       ],
-      'foot_r': [
-        { t: 0.00, q: idle('foot_r') },
-        { t: 0.20, q: eu('foot_r', -0.3, 0, 0) },
-        { t: 0.50, q: idle('foot_r') },
+      foot_r: [
+        { t: 0.0, q: idle('foot_r') },
+        { t: 0.2, q: eu('foot_r', -0.3, 0, 0) },
+        { t: 0.5, q: idle('foot_r') },
       ],
-      'spine_01': [
-        { t: 0.00, q: idle('spine_01') },
+      spine_01: [
+        { t: 0.0, q: idle('spine_01') },
         { t: 0.15, q: eu('spine_01', 0, 0, 0.15) },
-        { t: 0.50, q: idle('spine_01') },
+        { t: 0.5, q: idle('spine_01') },
       ],
-      'thigh_l': [
-        { t: 0.00, q: idle('thigh_l') },
-        { t: 0.15, q: aa('thigh_l', THIGH_L_FWD, -0.10) },
-        { t: 0.50, q: idle('thigh_l') },
+      thigh_l: [
+        { t: 0.0, q: idle('thigh_l') },
+        { t: 0.15, q: aa('thigh_l', THIGH_L_FWD, -0.1) },
+        { t: 0.5, q: idle('thigh_l') },
       ],
-      'calf_l': [
-        { t: 0.00, q: idle('calf_l') },
+      calf_l: [
+        { t: 0.0, q: idle('calf_l') },
         { t: 0.15, q: aa('calf_l', CALF_L_EXT, -0.15) },
-        { t: 0.50, q: idle('calf_l') },
+        { t: 0.5, q: idle('calf_l') },
       ],
-      '_pelvisShift': [
-        { t: 0.00 },
-        { t: 0.15, dy: 2 },
-        { t: 0.50 },
-      ],
+      _pelvisShift: [{ t: 0.0 }, { t: 0.15, dy: 2 }, { t: 0.5 }],
     });
 
-    animClips['kickLeft'] = buildKickClip('kickLeft', 0.65, {
-      'thigh_l': [
-        { t: 0.00, q: idle('thigh_l') },
-        { t: 0.12, q: aa('thigh_l', THIGH_L_FWD, -0.30) },
-        { t: 0.30, q: aa('thigh_l', THIGH_L_FWD,  1.50) },
-        { t: 0.45, q: aa('thigh_l', THIGH_L_FWD,  1.25) },
+    animClips.kickLeft = buildKickClip('kickLeft', 0.65, {
+      thigh_l: [
+        { t: 0.0, q: idle('thigh_l') },
+        { t: 0.12, q: aa('thigh_l', THIGH_L_FWD, -0.3) },
+        { t: 0.3, q: aa('thigh_l', THIGH_L_FWD, 1.5) },
+        { t: 0.45, q: aa('thigh_l', THIGH_L_FWD, 1.25) },
         { t: 0.65, q: idle('thigh_l') },
       ],
-      'calf_l': [
-        { t: 0.00, q: idle('calf_l') },
-        { t: 0.12, q: aa('calf_l', CALF_L_EXT, -0.50) },
-        { t: 0.30, q: aa('calf_l', CALF_L_EXT,  0.40) },
-        { t: 0.45, q: aa('calf_l', CALF_L_EXT,  0.30) },
+      calf_l: [
+        { t: 0.0, q: idle('calf_l') },
+        { t: 0.12, q: aa('calf_l', CALF_L_EXT, -0.5) },
+        { t: 0.3, q: aa('calf_l', CALF_L_EXT, 0.4) },
+        { t: 0.45, q: aa('calf_l', CALF_L_EXT, 0.3) },
         { t: 0.65, q: idle('calf_l') },
       ],
-      'foot_l': [
-        { t: 0.00, q: idle('foot_l') },
-        { t: 0.30, q: eu('foot_l', -0.35, 0, 0) },
+      foot_l: [
+        { t: 0.0, q: idle('foot_l') },
+        { t: 0.3, q: eu('foot_l', -0.35, 0, 0) },
         { t: 0.65, q: idle('foot_l') },
       ],
-      'spine_01': [
-        { t: 0.00, q: idle('spine_01') },
-        { t: 0.20, q: eu('spine_01', 0, 0, 0.18) },
+      spine_01: [
+        { t: 0.0, q: idle('spine_01') },
+        { t: 0.2, q: eu('spine_01', 0, 0, 0.18) },
         { t: 0.65, q: idle('spine_01') },
       ],
-      'thigh_r': [
-        { t: 0.00, q: idle('thigh_r') },
-        { t: 0.20, q: aa('thigh_r', THIGH_R_FWD, -0.12) },
+      thigh_r: [
+        { t: 0.0, q: idle('thigh_r') },
+        { t: 0.2, q: aa('thigh_r', THIGH_R_FWD, -0.12) },
         { t: 0.65, q: idle('thigh_r') },
       ],
-      '_pelvisShift': [
-        { t: 0.00 },
-        { t: 0.20, dy: 3 },
-        { t: 0.65 },
-      ],
+      _pelvisShift: [{ t: 0.0 }, { t: 0.2, dy: 3 }, { t: 0.65 }],
     });
 
     const LOW_KICK_DIR = new THREE.Vector3(0.05, -0.55, 0.83).normalize();
-    animClips['lowKick'] = buildKickClip('lowKick', 0.45, {
-      'thigh_r': [
-        { t: 0.00, q: idle('thigh_r') },
-        { t: 0.10, q: aa('thigh_r', LOW_KICK_DIR,  0.45) },
-        { t: 0.25, q: aa('thigh_r', LOW_KICK_DIR,  0.80) },
+    animClips.lowKick = buildKickClip('lowKick', 0.45, {
+      thigh_r: [
+        { t: 0.0, q: idle('thigh_r') },
+        { t: 0.1, q: aa('thigh_r', LOW_KICK_DIR, 0.45) },
+        { t: 0.25, q: aa('thigh_r', LOW_KICK_DIR, 0.8) },
         { t: 0.45, q: idle('thigh_r') },
       ],
-      'calf_r': [
-        { t: 0.00, q: idle('calf_r') },
-        { t: 0.10, q: aa('calf_r', CALF_R_EXT, -0.25) },
-        { t: 0.25, q: aa('calf_r', CALF_R_EXT,  0.35) },
+      calf_r: [
+        { t: 0.0, q: idle('calf_r') },
+        { t: 0.1, q: aa('calf_r', CALF_R_EXT, -0.25) },
+        { t: 0.25, q: aa('calf_r', CALF_R_EXT, 0.35) },
         { t: 0.45, q: idle('calf_r') },
       ],
-      'spine_01': [
-        { t: 0.00, q: idle('spine_01') },
+      spine_01: [
+        { t: 0.0, q: idle('spine_01') },
         { t: 0.15, q: eu('spine_01', 0, 0, -0.15) },
         { t: 0.45, q: idle('spine_01') },
       ],
-      'thigh_l': [
-        { t: 0.00, q: idle('thigh_l') },
-        { t: 0.15, q: aa('thigh_l', THIGH_L_FWD,  0.20) },
+      thigh_l: [
+        { t: 0.0, q: idle('thigh_l') },
+        { t: 0.15, q: aa('thigh_l', THIGH_L_FWD, 0.2) },
         { t: 0.45, q: idle('thigh_l') },
       ],
-      'calf_l': [
-        { t: 0.00, q: idle('calf_l') },
-        { t: 0.15, q: aa('calf_l', CALF_L_EXT, -0.30) },
+      calf_l: [
+        { t: 0.0, q: idle('calf_l') },
+        { t: 0.15, q: aa('calf_l', CALF_L_EXT, -0.3) },
         { t: 0.45, q: idle('calf_l') },
       ],
-      '_pelvisShift': [
-        { t: 0.00 },
-        { t: 0.15, dy: -5 },
-        { t: 0.45 },
-      ],
+      _pelvisShift: [{ t: 0.0 }, { t: 0.15, dy: -5 }, { t: 0.45 }],
     });
 
-    const SWEEP_ARC = new THREE.Vector3(0.10, 0.75, -0.65).normalize();
-    animClips['sweepKick'] = buildKickClip('sweepKick', 0.70, {
-      'thigh_l': [
-        { t: 0.00, q: idle('thigh_l') },
-        { t: 0.10, q: aa('thigh_l', THIGH_L_FWD,  0.30) },
-        { t: 0.25, q: aa('thigh_l', SWEEP_ARC,     0.90) },
-        { t: 0.45, q: aa('thigh_l', SWEEP_ARC,     0.70) },
-        { t: 0.70, q: idle('thigh_l') },
+    const SWEEP_ARC = new THREE.Vector3(0.1, 0.75, -0.65).normalize();
+    animClips.sweepKick = buildKickClip('sweepKick', 0.7, {
+      thigh_l: [
+        { t: 0.0, q: idle('thigh_l') },
+        { t: 0.1, q: aa('thigh_l', THIGH_L_FWD, 0.3) },
+        { t: 0.25, q: aa('thigh_l', SWEEP_ARC, 0.9) },
+        { t: 0.45, q: aa('thigh_l', SWEEP_ARC, 0.7) },
+        { t: 0.7, q: idle('thigh_l') },
       ],
-      'calf_l': [
-        { t: 0.00, q: idle('calf_l') },
-        { t: 0.25, q: aa('calf_l', CALF_L_EXT,  0.30) },
-        { t: 0.45, q: aa('calf_l', CALF_L_EXT,  0.20) },
-        { t: 0.70, q: idle('calf_l') },
+      calf_l: [
+        { t: 0.0, q: idle('calf_l') },
+        { t: 0.25, q: aa('calf_l', CALF_L_EXT, 0.3) },
+        { t: 0.45, q: aa('calf_l', CALF_L_EXT, 0.2) },
+        { t: 0.7, q: idle('calf_l') },
       ],
-      'spine_01': [
-        { t: 0.00, q: idle('spine_01') },
+      spine_01: [
+        { t: 0.0, q: idle('spine_01') },
         { t: 0.15, q: eu('spine_01', 0, 0, -0.25) },
         { t: 0.45, q: eu('spine_01', 0, 0, -0.25) },
-        { t: 0.70, q: idle('spine_01') },
+        { t: 0.7, q: idle('spine_01') },
       ],
-      'thigh_r': [
-        { t: 0.00, q: idle('thigh_r') },
-        { t: 0.15, q: aa('thigh_r', THIGH_R_FWD,  0.40) },
-        { t: 0.45, q: aa('thigh_r', THIGH_R_FWD,  0.40) },
-        { t: 0.70, q: idle('thigh_r') },
+      thigh_r: [
+        { t: 0.0, q: idle('thigh_r') },
+        { t: 0.15, q: aa('thigh_r', THIGH_R_FWD, 0.4) },
+        { t: 0.45, q: aa('thigh_r', THIGH_R_FWD, 0.4) },
+        { t: 0.7, q: idle('thigh_r') },
       ],
-      'calf_r': [
-        { t: 0.00, q: idle('calf_r') },
-        { t: 0.15, q: aa('calf_r', CALF_R_EXT, -0.50) },
-        { t: 0.45, q: aa('calf_r', CALF_R_EXT, -0.50) },
-        { t: 0.70, q: idle('calf_r') },
+      calf_r: [
+        { t: 0.0, q: idle('calf_r') },
+        { t: 0.15, q: aa('calf_r', CALF_R_EXT, -0.5) },
+        { t: 0.45, q: aa('calf_r', CALF_R_EXT, -0.5) },
+        { t: 0.7, q: idle('calf_r') },
       ],
-      '_pelvisShift': [
-        { t: 0.00 },
-        { t: 0.15, dy: -10 },
-        { t: 0.45, dy: -10 },
-        { t: 0.70 },
-      ],
+      _pelvisShift: [{ t: 0.0 }, { t: 0.15, dy: -10 }, { t: 0.45, dy: -10 }, { t: 0.7 }],
     });
   }
 
-  init(baseModel: THREE.Object3D, animClips: Record<string, THREE.AnimationClip>, texture: THREE.Texture) {
+  init(
+    baseModel: THREE.Object3D,
+    animClips: Record<string, THREE.AnimationClip>,
+    _texture: THREE.Texture,
+  ) {
     const model = skeletonClone(baseModel);
     this.model = model;
 
     model.scale.set(0.013, 0.013, 0.013);
     model.position.copy(this.position);
-    (model as THREE.Object3D & { rotation: THREE.Euler }).rotation.y = this.facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+    model.rotation.y = this.facing > 0 ? Math.PI / 2 : -Math.PI / 2;
 
     if (this.playerIndex === 1) {
-      model.traverse(child => {
+      model.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           const mesh = child as THREE.Mesh;
           if (Array.isArray(mesh.material)) {
-            mesh.material = mesh.material.map(m => {
+            mesh.material = mesh.material.map((m) => {
               const cloned = (m as THREE.MeshStandardMaterial).clone();
               cloned.color = new THREE.Color(0.6, 0.4, 0.4);
               cloned.emissive = new THREE.Color(0.15, 0.02, 0.02);
@@ -596,7 +696,11 @@ export class Fighter {
           } else {
             mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone();
             (mesh.material as THREE.MeshStandardMaterial).color = new THREE.Color(0.6, 0.4, 0.4);
-            (mesh.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(0.15, 0.02, 0.02);
+            (mesh.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(
+              0.15,
+              0.02,
+              0.02,
+            );
           }
         }
       });
@@ -604,7 +708,7 @@ export class Fighter {
 
     this.rootBone = null;
     const matSet = new Set<THREE.Material>();
-    model.traverse(child => {
+    model.traverse((child) => {
       if ((child as THREE.Bone).isBone && !this.rootBone) {
         this.rootBone = child as THREE.Bone;
         this.rootBoneBindX = child.position.x;
@@ -613,7 +717,9 @@ export class Fighter {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        mats.forEach(m => matSet.add(m));
+        mats.forEach((m) => {
+          matSet.add(m);
+        });
       }
     });
     this._cachedMaterials = [...matSet];
@@ -621,11 +727,20 @@ export class Fighter {
     this.mixer = new THREE.AnimationMixer(model);
 
     const onceAnimations = new Set([
-      'punch1', 'punch2', 'heavyPunch',
-      'hurt1', 'hurt2',
-      'jump', 'landing', 'victory',
-      'leanRight', 'leanLeft',
-      'kickRight', 'kickLeft', 'lowKick', 'sweepKick',
+      'punch1',
+      'punch2',
+      'heavyPunch',
+      'hurt1',
+      'hurt2',
+      'jump',
+      'landing',
+      'victory',
+      'leanRight',
+      'leanLeft',
+      'kickRight',
+      'kickLeft',
+      'lowKick',
+      'sweepKick',
     ]);
 
     for (const [name, clip] of Object.entries(animClips)) {
@@ -697,15 +812,16 @@ export class Fighter {
     this.playAnimation('combatIdle', 0.3);
   }
 
-  processInput(input: any, opponentPos: THREE.Vector3) {
+  processInput(input: InputState, opponentPos: THREE.Vector3) {
     const dxWorld = opponentPos.x - this.position.x;
     const dzWorld = opponentPos.z - this.position.z;
     const toOpponentAngle = Math.atan2(dzWorld, dxWorld);
 
-    const canUpdateFacing = this.state !== FIGHTER_STATE.ATTACKING &&
-        this.state !== FIGHTER_STATE.HIT_STUN &&
-        this.state !== FIGHTER_STATE.JUGGLE &&
-        this.state !== FIGHTER_STATE.KNOCKDOWN;
+    const canUpdateFacing =
+      this.state !== FIGHTER_STATE.ATTACKING &&
+      this.state !== FIGHTER_STATE.HIT_STUN &&
+      this.state !== FIGHTER_STATE.JUGGLE &&
+      this.state !== FIGHTER_STATE.KNOCKDOWN;
     if (canUpdateFacing) {
       this.facingAngle = toOpponentAngle;
     }
@@ -762,7 +878,7 @@ export class Fighter {
     }
   }
 
-  getRelativeInput(input: any) {
+  getRelativeInput(input: InputState): InputState {
     const rel = { ...input };
     if (this.facing > 0) {
       rel.forward = input.right;
@@ -785,9 +901,9 @@ export class Fighter {
     return rel;
   }
 
-  handleStandingState(input: any) {
+  handleStandingState(input: InputState) {
     this.isCrouching = false;
-    this.isBlocking = input.back;
+    this.isBlocking = input.back ?? false;
 
     const move = CombatSystem.resolveMove(input, this);
     if (move) {
@@ -860,9 +976,9 @@ export class Fighter {
     }
   }
 
-  handleCrouchState(input: any) {
+  handleCrouchState(input: InputState) {
     this.isCrouching = true;
-    this.isBlocking = input.back;
+    this.isBlocking = input.back ?? false;
 
     if (!input.down) {
       this.isCrouching = false;
@@ -898,7 +1014,7 @@ export class Fighter {
     }
   }
 
-  handleAirState(_input: any) {
+  handleAirState(_input: InputState) {
     this.velocity.y += GC.GRAVITY;
 
     if (this.position.y <= GC.GROUND_Y && this.velocity.y <= 0) {
@@ -912,7 +1028,7 @@ export class Fighter {
     }
   }
 
-  handleRunState(input: any) {
+  handleRunState(input: InputState) {
     this.isBlocking = false;
     this.runFrames++;
 
@@ -936,7 +1052,7 @@ export class Fighter {
     this.velocity.x = GC.RUN_SPEED;
   }
 
-  handleAttackState(input: any) {
+  handleAttackState(input: InputState) {
     if (!this.currentMove) {
       this.state = FIGHTER_STATE.IDLE;
       this.playAnimation('combatIdle', 0.15);
@@ -944,7 +1060,10 @@ export class Fighter {
     }
 
     this.moveFrame++;
-    const totalFrames = this.currentMove.startupFrames + this.currentMove.activeFrames + this.currentMove.recoveryFrames;
+    const totalFrames =
+      this.currentMove.startupFrames +
+      this.currentMove.activeFrames +
+      this.currentMove.recoveryFrames;
 
     if (this.currentMove.forwardLunge && this.moveFrame <= this.currentMove.startupFrames) {
       this.velocity.x = this.currentMove.forwardLunge;
@@ -970,7 +1089,7 @@ export class Fighter {
     }
   }
 
-  handleStunState(_input?: any) {
+  handleStunState(_input?: InputState) {
     this.stunFrames--;
     if (this.stunFrames <= 0) {
       this.state = FIGHTER_STATE.IDLE;
@@ -1053,7 +1172,7 @@ export class Fighter {
     }
   }
 
-  startAttack(move: any, isCombo = false) {
+  startAttack(move: MoveData, isCombo = false) {
     this.currentMove = move;
     this.moveFrame = 0;
     this.hasHitThisMove = false;
@@ -1079,7 +1198,7 @@ export class Fighter {
     this.playAnimation(direction < 0 ? 'walkLeft' : 'walkRight', 0.1);
   }
 
-  onHit(result: any, attackerFacing: number) {
+  onHit(result: HitResult, _attackerFacing: number) {
     switch (result.type) {
       case 'hit': {
         this.isBlocking = false;
@@ -1154,7 +1273,7 @@ export class Fighter {
   updatePhysics() {
     const cosA = Math.cos(this.facingAngle);
     const sinA = Math.sin(this.facingAngle);
-    const worldVx = this.velocity.x * cosA + this.velocity.z * (-sinA);
+    const worldVx = this.velocity.x * cosA + this.velocity.z * -sinA;
     const worldVz = this.velocity.x * sinA + this.velocity.z * cosA;
 
     this.position.x += worldVx;
@@ -1167,7 +1286,9 @@ export class Fighter {
     }
 
     const arenaRadius = GC.ARENA_WIDTH;
-    const distFromCenter = Math.sqrt(this.position.x * this.position.x + this.position.z * this.position.z);
+    const distFromCenter = Math.sqrt(
+      this.position.x * this.position.x + this.position.z * this.position.z,
+    );
     if (distFromCenter > arenaRadius) {
       const scale = arenaRadius / distFromCenter;
       this.position.x *= scale;
@@ -1206,10 +1327,10 @@ export class Fighter {
     this.model.position.copy(this.position);
 
     const targetRotY = Math.PI / 2 - this.facingAngle;
-    let diff = targetRotY - (this.model as any).rotation.y;
+    let diff = targetRotY - this.model.rotation.y;
     while (diff > Math.PI) diff -= 2 * Math.PI;
     while (diff < -Math.PI) diff += 2 * Math.PI;
-    (this.model as any).rotation.y += diff * 0.2;
+    this.model.rotation.y += diff * 0.2;
 
     if (this.hitFlash >= 0 && this._cachedMaterials) {
       const flashActive = this.hitFlash > 0;
@@ -1237,7 +1358,10 @@ export class Fighter {
     let moveKey: string | null = null;
     if (this.currentMove) {
       for (const [k, v] of Object.entries(MOVES)) {
-        if (v === this.currentMove) { moveKey = k; break; }
+        if (v === this.currentMove) {
+          moveKey = k;
+          break;
+        }
       }
     }
     return {
@@ -1263,11 +1387,12 @@ export class Fighter {
     };
   }
 
-  deserializeState(data: any) {
+  deserializeState(data: FighterStateSync) {
     this.position.set(data.px, data.py, data.pz);
     this.velocity.set(data.vx, data.vy, data.vz);
     this.facing = data.facing;
-    this.facingAngle = data.facingAngle !== undefined ? data.facingAngle : (this.playerIndex === 0 ? 0 : Math.PI);
+    this.facingAngle =
+      data.facingAngle !== undefined ? data.facingAngle : this.playerIndex === 0 ? 0 : Math.PI;
     this.health = data.health;
     this.isCrouching = data.isCrouching;
     this.isBlocking = data.isBlocking;
@@ -1276,8 +1401,8 @@ export class Fighter {
     this.stunFrames = data.stunFrames;
     this.wins = data.wins;
 
-    if (data.moveId && MOVES[data.moveId]) {
-      this.currentMove = MOVES[data.moveId];
+    if (data.moveId && MOVES[data.moveId] !== undefined) {
+      this.currentMove = MOVES[data.moveId] ?? null;
       this.moveFrame = data.moveFrame || 0;
       this.hasHitThisMove = !!data.hasHitThisMove;
     } else {
@@ -1318,7 +1443,10 @@ export class Fighter {
         if (this.currentMove) {
           const animName = this.currentMove.animation;
           const clip = this.animations[animName];
-          const totalFrames = this.currentMove.startupFrames + this.currentMove.activeFrames + this.currentMove.recoveryFrames;
+          const totalFrames =
+            this.currentMove.startupFrames +
+            this.currentMove.activeFrames +
+            this.currentMove.recoveryFrames;
           const moveDuration = totalFrames / 60;
           let speed = this.currentMove.animSpeed || 1.0;
           if (clip && clip.duration > 0 && moveDuration > 0) {

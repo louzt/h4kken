@@ -2,23 +2,91 @@
 // H4KKEN - Combat System & Move Data
 // ============================================================
 
+import type { InputState } from './Input';
+
+export type AttackLevel = 'high' | 'mid' | 'low' | 'throw';
+export type HitResultType = 'stagger' | 'knockback' | 'launch' | 'knockdown' | 'crumple' | 'throw';
+
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface MoveData {
+  name: string;
+  command: string;
+  inputDir: string | null;
+  level: AttackLevel;
+  damage: number;
+  chipDamage: number;
+  startupFrames: number;
+  activeFrames: number;
+  recoveryFrames: number;
+  hitstun: number;
+  blockstun: number;
+  onHit: HitResultType;
+  pushback: number;
+  pushbackOnBlock: number;
+  animation: string;
+  animSpeed: number;
+  hitboxOffset: Vec3;
+  hitboxSize: Vec3;
+  comboRoutes: string[];
+  canChainFrom: string[];
+  // Optional fields used by specific moves
+  launchVelocity?: number;
+  forwardLunge?: number;
+  requiresCrouch?: boolean;
+  isHeavy?: boolean;
+  throwMove?: boolean;
+}
+
+export type HitResultWhiff = { type: 'whiff' };
+export type HitResultBlocked = {
+  type: 'blocked';
+  blockstun: number;
+  pushback: number;
+  chipDamage: number;
+};
+export type HitResultHit = {
+  type: 'hit';
+  damage: number;
+  hitstun: number;
+  pushback: number;
+  onHit: HitResultType;
+  launchVelocity: number;
+  comboHits: number;
+};
+export type HitResult = HitResultWhiff | HitResultBlocked | HitResultHit;
+
+// Minimal fighter shape needed by CombatSystem static methods
+interface FighterLike {
+  state: string;
+  isCrouching: boolean;
+  isBlocking: boolean;
+  currentMove: MoveData | null;
+  moveFrame: number;
+  comboCount: number;
+}
+
 // Attack levels
-export const LEVEL = {
+const LEVEL = {
   HIGH: 'high',
   MID: 'mid',
   LOW: 'low',
   THROW: 'throw',
-};
+} as const;
 
 // Hit results
 export const HIT_RESULT = {
-  STAGGER: 'stagger',      // Normal hitstun
-  KNOCKBACK: 'knockback',  // Push back with stun
-  LAUNCH: 'launch',        // Launcher into juggle
-  KNOCKDOWN: 'knockdown',  // Knockdown
-  CRUMPLE: 'crumple',      // Slow fall crumple
-  THROW_HIT: 'throw',      // Throw
-};
+  STAGGER: 'stagger', // Normal hitstun
+  KNOCKBACK: 'knockback', // Push back with stun
+  LAUNCH: 'launch', // Launcher into juggle
+  KNOCKDOWN: 'knockdown', // Knockdown
+  CRUMPLE: 'crumple', // Slow fall crumple
+  THROW_HIT: 'throw', // Throw
+} as const;
 
 // Fighter states
 export const FIGHTER_STATE = {
@@ -50,8 +118,8 @@ export const FIGHTER_STATE = {
 export const GAME_CONSTANTS = {
   GRAVITY: -0.025,
   GROUND_Y: 0,
-  ARENA_WIDTH: 12,        // half-width
-  ARENA_DEPTH: 5,         // half-depth (for sidestepping)
+  ARENA_WIDTH: 12, // half-width
+  ARENA_DEPTH: 5, // half-depth (for sidestepping)
   WALK_SPEED: 0.045,
   BACK_WALK_SPEED: 0.035,
   RUN_SPEED: 0.09,
@@ -79,9 +147,9 @@ export const GAME_CONSTANTS = {
 // Each move defines: name, command, input direction, level, damage,
 // startup/active/recovery frames, hitstun, blockstun, on-hit result,
 // pushback, animation name, hitbox data, and possible combo routes
-export const MOVES: Record<string, any> = {
+export const MOVES: Record<string, MoveData> = {
   // ========== STANDING ATTACKS ==========
-  
+
   // Left Punch - fast jab, high
   lp: {
     name: 'Left Punch',
@@ -432,107 +500,81 @@ export const MOVES: Record<string, any> = {
   },
 };
 
-// Combo string definitions
-export const COMBO_STRINGS = [
-  {
-    name: '1-2 Combo',
-    sequence: ['lp', 'rp'],
-    timing: 24, // max frames between hits
-  },
-  {
-    name: '1-2-3 String',
-    sequence: ['lp', 'rp', 'lk'],
-    timing: 24,
-  },
-  {
-    name: '1-1-2 String',
-    sequence: ['lp', 'lp', 'rp'],
-    timing: 20,
-  },
-  {
-    name: 'Kick Combo',
-    sequence: ['lk', 'rk'],
-    timing: 26,
-  },
-  {
-    name: 'Rush Combo',
-    sequence: ['lp', 'lk', 'rp', 'rk'],
-    timing: 24,
-  },
-];
-
-
 // ============================================================
 // Combat Resolution
 // ============================================================
 
-export class CombatSystem {
-  
-  static resolveMove(input: any, fighter: any) {
-    const { state, isCrouching } = fighter;
-    
-    // Can't attack during these states
-    const noAttackStates = [
-      FIGHTER_STATE.HIT_STUN, FIGHTER_STATE.BLOCK_STUN,
-      FIGHTER_STATE.JUGGLE, FIGHTER_STATE.KNOCKDOWN,
-      FIGHTER_STATE.GETUP, FIGHTER_STATE.LANDING,
-      FIGHTER_STATE.VICTORY, FIGHTER_STATE.DEFEAT,
-    ];
-    if (noAttackStates.includes(state)) return null;
-
-    // Currently attacking - check combo routes
-    if (state === FIGHTER_STATE.ATTACKING && fighter.currentMove) {
-      return this.resolveComboInput(input, fighter);
+export namespace CombatSystem {
+  function resolveRunningOrThrow(input: InputState, state: string): MoveData | null {
+    if (input.lpJust && input.lkJust) return MOVES.throw_cmd ?? null;
+    if (
+      state === FIGHTER_STATE.RUN &&
+      (input.lpJust || input.rpJust || input.lkJust || input.rkJust)
+    ) {
+      return MOVES.running_attack ?? null;
     }
-
-    // Throw: LP + LK simultaneously
-    if (input.lpJust && input.lkJust) {
-      return MOVES.throw_cmd;
-    }
-
-    // Running attack
-    if (state === FIGHTER_STATE.RUN && (input.lpJust || input.rpJust || input.lkJust || input.rkJust)) {
-      return MOVES.running_attack;
-    }
-
-    // Directional + button commands
-    // Down-Forward + RP = Launcher
-    if (input.down && input.forward && input.rpJust) {
-      return MOVES.df_rp;
-    }
-
-    // Crouching attacks
-    if (isCrouching || input.down) {
-      if (input.rpJust) return MOVES.d_rp;
-      if (input.lpJust) return MOVES.d_lp;
-      if (input.rkJust) return MOVES.d_rk;
-      if (input.lkJust) return MOVES.d_lk;
-    }
-
-    // Forward + button
-    if (input.forward) {
-      if (input.rpJust) return MOVES.f_rp;
-      if (input.lpJust) return MOVES.f_lp;
-    }
-
-    // Neutral attacks
-    if (input.lpJust) return MOVES.lp;
-    if (input.rpJust) return MOVES.rp;
-    if (input.lkJust) return MOVES.lk;
-    if (input.rkJust) return MOVES.rk;
-
     return null;
   }
 
-  static resolveComboInput(input: any, fighter: any) {
+  function resolveCrouchingAttack(input: InputState): MoveData | null {
+    if (input.rpJust) return MOVES.d_rp ?? null;
+    if (input.lpJust) return MOVES.d_lp ?? null;
+    if (input.rkJust) return MOVES.d_rk ?? null;
+    if (input.lkJust) return MOVES.d_lk ?? null;
+    return null;
+  }
+
+  function resolveNeutralAttack(input: InputState): MoveData | null {
+    if (input.down && input.forward && input.rpJust) return MOVES.df_rp ?? null;
+    if (input.forward && input.rpJust) return MOVES.f_rp ?? null;
+    if (input.forward && input.lpJust) return MOVES.f_lp ?? null;
+    if (input.lpJust) return MOVES.lp ?? null;
+    if (input.rpJust) return MOVES.rp ?? null;
+    if (input.lkJust) return MOVES.lk ?? null;
+    if (input.rkJust) return MOVES.rk ?? null;
+    return null;
+  }
+
+  export function resolveMove(input: InputState, fighter: FighterLike): MoveData | null {
+    const { state, isCrouching } = fighter;
+
+    const noAttackStates = [
+      FIGHTER_STATE.HIT_STUN,
+      FIGHTER_STATE.BLOCK_STUN,
+      FIGHTER_STATE.JUGGLE,
+      FIGHTER_STATE.KNOCKDOWN,
+      FIGHTER_STATE.GETUP,
+      FIGHTER_STATE.LANDING,
+      FIGHTER_STATE.VICTORY,
+      FIGHTER_STATE.DEFEAT,
+    ];
+    if (noAttackStates.includes(state)) return null;
+
+    if (state === FIGHTER_STATE.ATTACKING && fighter.currentMove) {
+      return resolveComboInput(input, fighter);
+    }
+
+    const runOrThrow = resolveRunningOrThrow(input, state);
+    if (runOrThrow) return runOrThrow;
+
+    if (isCrouching || input.down) {
+      const crouch = resolveCrouchingAttack(input);
+      if (crouch) return crouch;
+    }
+
+    return resolveNeutralAttack(input);
+  }
+
+  export function resolveComboInput(input: InputState, fighter: FighterLike): MoveData | null {
     const currentMove = fighter.currentMove;
+    if (!currentMove) return null;
     const moveFrame = fighter.moveFrame;
     // Can only chain during recovery or late active frames
     const chainWindowStart = currentMove.startupFrames + currentMove.activeFrames - 2;
     if (moveFrame < chainWindowStart) return null;
 
     // Check if the pressed button leads to a valid combo route
-    let nextMoveId = null;
+    let nextMoveId: string | null = null;
     if (input.lpJust && currentMove.comboRoutes.includes('lp')) nextMoveId = 'lp';
     if (input.rpJust && currentMove.comboRoutes.includes('rp')) nextMoveId = 'rp';
     if (input.lkJust && currentMove.comboRoutes.includes('lk')) nextMoveId = 'lk';
@@ -545,22 +587,24 @@ export class CombatSystem {
       if (input.rkJust && currentMove.comboRoutes.includes('d_rk')) nextMoveId = 'd_rk';
     }
 
-    if (nextMoveId && MOVES[nextMoveId]) {
-      return MOVES[nextMoveId];
+    if (nextMoveId !== null) {
+      return MOVES[nextMoveId] ?? null;
     }
 
     return null;
   }
 
   // Determine if attack is blocked
-  static isBlocked(attacker: any, defender: any, move: any) {
+  function isBlocked(_attacker: FighterLike, defender: FighterLike, move: MoveData): boolean {
     // Can't block while in hitstun, juggle, knockdown, etc.
     const unblockableStates = [
-      FIGHTER_STATE.HIT_STUN, FIGHTER_STATE.JUGGLE,
-      FIGHTER_STATE.KNOCKDOWN, FIGHTER_STATE.GETUP,
+      FIGHTER_STATE.HIT_STUN,
+      FIGHTER_STATE.JUGGLE,
+      FIGHTER_STATE.KNOCKDOWN,
+      FIGHTER_STATE.GETUP,
     ];
     if (unblockableStates.includes(defender.state)) return false;
-    
+
     // Must be holding back
     if (!defender.isBlocking) return false;
 
@@ -581,7 +625,7 @@ export class CombatSystem {
   }
 
   // Check if high attack whiffs over crouching opponent
-  static highWhiffs(move: any, defender: any) {
+  function highWhiffs(move: MoveData, defender: FighterLike): boolean {
     if (move.level === LEVEL.HIGH && defender.isCrouching) {
       return true;
     }
@@ -589,24 +633,28 @@ export class CombatSystem {
   }
 
   // Calculate actual damage with combo scaling
-  static calculateDamage(baseDamage: number, comboHits: number) {
+  function calculateDamage(baseDamage: number, comboHits: number) {
     if (comboHits <= 1) return baseDamage;
     const scaling = Math.max(
       GAME_CONSTANTS.MIN_COMBO_SCALING,
-      Math.pow(GAME_CONSTANTS.COMBO_SCALING_PER_HIT, comboHits - 1)
+      GAME_CONSTANTS.COMBO_SCALING_PER_HIT ** (comboHits - 1),
     );
     return Math.round(baseDamage * scaling);
   }
 
   // Resolve a hit between attacker and defender
-  static resolveHit(attacker: any, defender: any, move: any) {
+  export function resolveHit(
+    attacker: FighterLike,
+    defender: FighterLike,
+    move: MoveData,
+  ): HitResult {
     // Check if high attack whiffs over crouch
-    if (this.highWhiffs(move, defender)) {
+    if (highWhiffs(move, defender)) {
       return { type: 'whiff' };
     }
 
     // Check blocking
-    if (this.isBlocked(attacker, defender, move)) {
+    if (isBlocked(attacker, defender, move)) {
       return {
         type: 'blocked',
         blockstun: move.blockstun,
@@ -617,7 +665,7 @@ export class CombatSystem {
 
     // Hit connects
     const comboHits = (defender.comboCount || 0) + 1;
-    const damage = this.calculateDamage(move.damage, comboHits);
+    const damage = calculateDamage(move.damage, comboHits);
 
     return {
       type: 'hit',
@@ -631,7 +679,13 @@ export class CombatSystem {
   }
 
   // Check hitbox collision (AABB)
-  static checkHitbox(attackerPos: any, attackerFacingAngle: number, move: any, defenderPos: any, defenderWidth = 0.5) {
+  export function checkHitbox(
+    attackerPos: Vec3,
+    attackerFacingAngle: number,
+    move: MoveData,
+    defenderPos: Vec3,
+    defenderWidth = 0.5,
+  ): boolean {
     // Calculate hitbox world position by projecting offset along fight axis
     const cosA = Math.cos(attackerFacingAngle);
     const sinA = Math.sin(attackerFacingAngle);
@@ -648,9 +702,10 @@ export class CombatSystem {
     const defHalfD = 0.4;
 
     // AABB collision
-    const overlapX = Math.abs(hbx - defenderPos.x) < (move.hitboxSize.x + defHalfW);
-    const overlapY = (hby + move.hitboxSize.y) > defenderPos.y && (hby - move.hitboxSize.y) < (defenderPos.y + defH);
-    const overlapZ = Math.abs(hbz - defenderPos.z) < (move.hitboxSize.z + defHalfD);
+    const overlapX = Math.abs(hbx - defenderPos.x) < move.hitboxSize.x + defHalfW;
+    const overlapY =
+      hby + move.hitboxSize.y > defenderPos.y && hby - move.hitboxSize.y < defenderPos.y + defH;
+    const overlapZ = Math.abs(hbz - defenderPos.z) < move.hitboxSize.z + defHalfD;
 
     return overlapX && overlapY && overlapZ;
   }

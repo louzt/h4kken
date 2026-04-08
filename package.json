@@ -8,7 +8,9 @@
     "dev": "concurrently \"bun --watch server.ts\" \"vite\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "bun dist/server.js",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
+    "fix": "bunx biome check --write . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
+    "ci": "bunx biome ci . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
+    "prepare": "husky"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -16,11 +18,14 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
     "@types/express": "^5.0.6",
     "@types/node": "^25.5.2",
     "@types/three": "^0.183.1",
     "@types/ws": "^8.18.1",
     "concurrently": "^9.2.1",
+    "husky": "^9.1.7",
+    "knip": "^6.3.1",
     "typescript": "^6.0.2",
     "vite": "^8.0.7"
   }

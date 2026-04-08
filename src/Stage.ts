@@ -45,7 +45,9 @@ export class Stage {
 
     const centerGeo = new THREE.PlaneGeometry(0.06, 6);
     const centerMat = new THREE.MeshBasicMaterial({
-      color: 0xffd700, transparent: true, opacity: 0.5,
+      color: 0xffd700,
+      transparent: true,
+      opacity: 0.5,
     });
     const centerLine = new THREE.Mesh(centerGeo, centerMat);
     centerLine.rotation.x = -Math.PI / 2;
@@ -54,8 +56,11 @@ export class Stage {
 
     const ringGeo = new THREE.TorusGeometry(10, 0.08, 6, 32);
     const ringMat = new THREE.MeshStandardMaterial({
-      color: 0xffd700, metalness: 0.8, roughness: 0.2,
-      emissive: new THREE.Color(0xaa8800), emissiveIntensity: 0.3,
+      color: 0xffd700,
+      metalness: 0.8,
+      roughness: 0.2,
+      emissive: new THREE.Color(0xaa8800),
+      emissiveIntensity: 0.3,
     });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.rotation.x = Math.PI / 2;
@@ -65,7 +70,9 @@ export class Stage {
 
     const outerRingGeo = new THREE.TorusGeometry(arenaRadius, 0.12, 6, 32);
     const outerRingMat = new THREE.MeshStandardMaterial({
-      color: 0x997744, metalness: 0.5, roughness: 0.4,
+      color: 0x997744,
+      metalness: 0.5,
+      roughness: 0.4,
     });
     const outerRing = new THREE.Mesh(outerRingGeo, outerRingMat);
     outerRing.rotation.x = Math.PI / 2;
@@ -120,8 +127,8 @@ export class Stage {
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
-        topColor:    { value: new THREE.Color(0x3388cc) },
-        horizColor:  { value: new THREE.Color(0x99ccee) },
+        topColor: { value: new THREE.Color(0x3388cc) },
+        horizColor: { value: new THREE.Color(0x99ccee) },
         bottomColor: { value: new THREE.Color(0x88aa77) },
       },
       vertexShader: `
@@ -182,14 +189,14 @@ export class Stage {
     const mountainDefs = [
       { x: -45, z: -55, h: 22, r: 14, c: 0x667766 },
       { x: -25, z: -60, h: 30, r: 18, c: 0x5a6b5a },
-      { x:   5, z: -65, h: 35, r: 20, c: 0x556655 },
-      { x:  30, z: -58, h: 25, r: 15, c: 0x607060 },
-      { x:  50, z: -55, h: 20, r: 12, c: 0x6b7b6b },
+      { x: 5, z: -65, h: 35, r: 20, c: 0x556655 },
+      { x: 30, z: -58, h: 25, r: 15, c: 0x607060 },
+      { x: 50, z: -55, h: 20, r: 12, c: 0x6b7b6b },
       { x: -55, z: -50, h: 18, r: 11, c: 0x708070 },
-      { x:  55, z: -60, h: 24, r: 16, c: 0x5e6e5e },
+      { x: 55, z: -60, h: 24, r: 16, c: 0x5e6e5e },
     ];
 
-    mountainDefs.forEach(m => {
+    mountainDefs.forEach((m) => {
       const geo = new THREE.ConeGeometry(m.r, m.h, 5);
       const mat = new THREE.MeshLambertMaterial({ color: m.c, flatShading: true });
       const mesh = new THREE.Mesh(geo, mat);
@@ -198,14 +205,16 @@ export class Stage {
       this.scene.add(mesh);
     });
 
-    mountainDefs.filter(m => m.h > 25).forEach(m => {
-      const capGeo = new THREE.ConeGeometry(m.r * 0.35, m.h * 0.2, 5);
-      const capMat = new THREE.MeshLambertMaterial({ color: 0xdde8dd, flatShading: true });
-      const cap = new THREE.Mesh(capGeo, capMat);
-      cap.position.set(m.x, m.h - 2, m.z);
-      cap.rotation.y = Math.random() * Math.PI;
-      this.scene.add(cap);
-    });
+    mountainDefs
+      .filter((m) => m.h > 25)
+      .forEach((m) => {
+        const capGeo = new THREE.ConeGeometry(m.r * 0.35, m.h * 0.2, 5);
+        const capMat = new THREE.MeshLambertMaterial({ color: 0xdde8dd, flatShading: true });
+        const cap = new THREE.Mesh(capGeo, capMat);
+        cap.position.set(m.x, m.h - 2, m.z);
+        cap.rotation.y = Math.random() * Math.PI;
+        this.scene.add(cap);
+      });
 
     const treeCount = 14;
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x664422 });
@@ -246,8 +255,10 @@ export class Stage {
     for (const obj of this.objects) {
       if ((obj as THREE.PointLight).isPointLight) {
         const light = obj as THREE.PointLight;
-        light.intensity = 1.0 + Math.sin(this.time * 6 + obj.position.x) * 0.3
-                              + Math.sin(this.time * 9.7 + obj.position.z) * 0.15;
+        light.intensity =
+          1.0 +
+          Math.sin(this.time * 6 + obj.position.x) * 0.3 +
+          Math.sin(this.time * 9.7 + obj.position.z) * 0.15;
       }
     }
   }

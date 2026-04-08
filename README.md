@@ -27,8 +27,8 @@ A Tekken-inspired 3D browser fighting game built with Three.js and WebSockets.
 ## Quick Start
 
 ```bash
-npm install
-npm start
+bun install
+bun run dev
 ```
 
 Open http://localhost:3000
@@ -39,10 +39,18 @@ Open http://localhost:3000
 docker compose up --build
 ```
 
+## Dev
+
+```bash
+bun run fix   # auto-format, lint, typecheck, dead-code check — run before committing
+```
+
+Pre-commit hooks are installed automatically by `bun install` (via the `prepare` script). Every commit runs `bun run fix` and is blocked if anything fails.
+
 ## Tech Stack
 
 - **Frontend**: Three.js (3D), vanilla JS modules
-- **Backend**: Node.js, Express, WebSocket (`ws`)
+- **Backend**: Bun, Express, WebSocket (`ws`)
 - **Assets**: FBX character model and animations (AnimPack01)
 
 ## License

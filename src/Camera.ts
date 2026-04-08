@@ -38,7 +38,12 @@ export class FightCamera {
     (this.camera as THREE.PerspectiveCamera).lookAt(this.targetLookAt);
   }
 
-  update(fighter1Pos: THREE.Vector3, fighter2Pos: THREE.Vector3, deltaTime: number, localPlayerIndex = 0) {
+  update(
+    fighter1Pos: THREE.Vector3,
+    fighter2Pos: THREE.Vector3,
+    deltaTime: number,
+    localPlayerIndex = 0,
+  ) {
     const midX = (fighter1Pos.x + fighter2Pos.x) / 2;
     const midY = Math.max((fighter1Pos.y + fighter2Pos.y) / 2, 0);
     const midZ = (fighter1Pos.z + fighter2Pos.z) / 2;
@@ -51,7 +56,7 @@ export class FightCamera {
 
     if (fighterDist > 0.1) {
       const fightAngle = Math.atan2(dz, dx);
-      let targetOrbit = fightAngle + Math.PI / 2;
+      const targetOrbit = fightAngle + Math.PI / 2;
 
       let angleDiff = targetOrbit - this.orbitAngle;
       while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
@@ -66,14 +71,10 @@ export class FightCamera {
     this.targetPosition.set(
       midX + Math.cos(this.orbitAngle) * depth,
       midY + height,
-      midZ + Math.sin(this.orbitAngle) * depth
+      midZ + Math.sin(this.orbitAngle) * depth,
     );
 
-    this.targetLookAt.set(
-      midX,
-      midY + this.lookAtHeightOffset,
-      midZ
-    );
+    this.targetLookAt.set(midX, midY + this.lookAtHeightOffset, midZ);
 
     this.camera.position.lerp(this.targetPosition, this.smoothSpeed);
     this.currentLookAt.lerp(this.targetLookAt, this.smoothSpeed);
@@ -97,16 +98,8 @@ export class FightCamera {
   setDramaticAngle(focusPos: THREE.Vector3) {
     const cosA = Math.cos(this.orbitAngle);
     const sinA = Math.sin(this.orbitAngle);
-    this.targetPosition.set(
-      focusPos.x + cosA * 4,
-      focusPos.y + 2,
-      focusPos.z + sinA * 4
-    );
-    this.targetLookAt.set(
-      focusPos.x,
-      focusPos.y + 1.2,
-      focusPos.z
-    );
+    this.targetPosition.set(focusPos.x + cosA * 4, focusPos.y + 2, focusPos.z + sinA * 4);
+    this.targetLookAt.set(focusPos.x, focusPos.y + 1.2, focusPos.z);
     this.smoothSpeed = 0.03;
   }
 
