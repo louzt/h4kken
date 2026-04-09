@@ -8,6 +8,7 @@ import {
   Effect,
   HemisphericLight,
   MeshBuilder,
+  PBRMaterial,
   PointLight,
   Scene,
   ShaderMaterial,
@@ -42,26 +43,33 @@ export class Stage {
   }
 
   setupLighting() {
+    // Low ambient so the directional light provides clear shading and shadow contrast
     const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), this.scene);
-    ambient.intensity = 0.4;
-    ambient.diffuse = new Color3(1, 1, 1);
-    ambient.groundColor = new Color3(0.27, 0.33, 0.13);
-    ambient.specular = new Color3(0.53, 0.73, 1);
+    ambient.intensity = 0.25;
+    ambient.diffuse = new Color3(0.8, 0.85, 1.0);
+    ambient.groundColor = new Color3(0.15, 0.18, 0.08);
+    // No specular from hemisphere — prevents the plastic sheen
+    ambient.specular = Color3.Black();
 
-    const sun = new DirectionalLight('sun', new Vector3(-8, -18, -10).normalize(), this.scene);
-    sun.diffuse = new Color3(1, 0.96, 0.878);
-    sun.intensity = 0.8;
+    const sun = new DirectionalLight('sun', new Vector3(-0.6, -1.0, -0.5).normalize(), this.scene);
+    sun.diffuse = new Color3(1.0, 0.96, 0.88);
+    sun.intensity = 1.8;
     sun.position = new Vector3(8, 18, 10);
 
-    const shadowGen = new ShadowGenerator(1024, sun);
-    shadowGen.usePoissonSampling = true;
-    shadowGen.bias = 0.001;
+    // 2048 map + PCF for smooth soft shadows
+    const shadowGen = new ShadowGenerator(2048, sun);
+    shadowGen.usePercentageCloserFiltering = true;
+    shadowGen.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
+    shadowGen.bias = 0.0008;
 
-    // Expose shadow generator so arena meshes can be added to it
     this._shadowGen = shadowGen;
   }
 
   private _shadowGen: ShadowGenerator | null = null;
+
+  get shadowGenerator(): ShadowGenerator | null {
+    return this._shadowGen;
+  }
 
   buildArena() {
     const arenaRadius = 14;
@@ -79,9 +87,10 @@ export class Stage {
     );
     platform.position.y = -0.3;
     platform.receiveShadows = true;
-    const platMat = new StandardMaterial('platMat', this.scene);
-    platMat.diffuseColor = new Color3(0.784, 0.722, 0.604);
-    platMat.specularColor = new Color3(0.1, 0.1, 0.1);
+    const platMat = new PBRMaterial('platMat', this.scene);
+    platMat.albedoColor = new Color3(0.784, 0.722, 0.604);
+    platMat.roughness = 0.95;
+    platMat.metallic = 0;
     platform.material = platMat;
     this._shadowGen?.addShadowCaster(platform);
 
@@ -93,9 +102,10 @@ export class Stage {
     );
     fightArea.position.y = 0.01;
     fightArea.receiveShadows = true;
-    const faMat = new StandardMaterial('faMat', this.scene);
-    faMat.diffuseColor = new Color3(0.545, 0.451, 0.333);
-    faMat.specularPower = 64;
+    const faMat = new PBRMaterial('faMat', this.scene);
+    faMat.albedoColor = new Color3(0.545, 0.451, 0.333);
+    faMat.roughness = 0.9;
+    faMat.metallic = 0;
     fightArea.material = faMat;
 
     // Gold ring at edge of fight area
@@ -126,8 +136,10 @@ export class Stage {
     const ground = MeshBuilder.CreateGround('ground', { width: 200, height: 200 }, this.scene);
     ground.position.y = -0.6;
     ground.receiveShadows = true;
-    const groundMat = new StandardMaterial('groundMat', this.scene);
-    groundMat.diffuseColor = new Color3(0.42, 0.56, 0.369);
+    const groundMat = new PBRMaterial('groundMat', this.scene);
+    groundMat.albedoColor = new Color3(0.38, 0.52, 0.33);
+    groundMat.roughness = 1.0;
+    groundMat.metallic = 0;
     ground.material = groundMat;
 
     // Pillars with flame lights
@@ -146,6 +158,7 @@ export class Stage {
       base.position.set(px, 0.1, pz);
       const baseMat = new StandardMaterial(`pillarBaseMat${i}`, this.scene);
       baseMat.diffuseColor = new Color3(0.533, 0.467, 0.4);
+      baseMat.specularColor = Color3.Black();
       base.material = baseMat;
 
       const col = MeshBuilder.CreateCylinder(
@@ -156,6 +169,7 @@ export class Stage {
       col.position.set(px, 3, pz);
       const colMat = new StandardMaterial(`pillarColMat${i}`, this.scene);
       colMat.diffuseColor = new Color3(0.6, 0.533, 0.467);
+      colMat.specularColor = Color3.Black();
       col.material = colMat;
 
       const cap = MeshBuilder.CreateCylinder(
@@ -166,6 +180,7 @@ export class Stage {
       cap.position.set(px, 5.7, pz);
       const capMat = new StandardMaterial(`pillarCapMat${i}`, this.scene);
       capMat.diffuseColor = new Color3(0.667, 0.6, 0.467);
+      capMat.specularColor = Color3.Black();
       cap.material = capMat;
 
       const flameColor = i % 2 === 0 ? new Color3(1, 0.4, 0.133) : new Color3(1, 0.533, 0.267);
@@ -198,6 +213,7 @@ export class Stage {
       mesh.rotation.y = Math.random() * Math.PI;
       const mat = new StandardMaterial('mountainMat', this.scene);
       mat.diffuseColor = m.c;
+      mat.specularColor = Color3.Black();
       mesh.material = mat;
 
       if (m.h > 25) {
@@ -210,6 +226,7 @@ export class Stage {
         cap.rotation.y = Math.random() * Math.PI;
         const capMat = new StandardMaterial('mountainCapMat', this.scene);
         capMat.diffuseColor = new Color3(0.867, 0.91, 0.867);
+        capMat.specularColor = Color3.Black();
         cap.material = capMat;
       }
     });
@@ -237,6 +254,7 @@ export class Stage {
       trunk.position.set(tx, 1.5 * s - 0.6, tz);
       const trunkMat = new StandardMaterial('trunkMat', this.scene);
       trunkMat.diffuseColor = trunkColor;
+      trunkMat.specularColor = Color3.Black();
       trunk.material = trunkMat;
 
       for (let j = 0; j < 3; j++) {
@@ -252,6 +270,7 @@ export class Stage {
         leaf.rotation.y = Math.random() * Math.PI;
         const leafMat = new StandardMaterial('leafMat', this.scene);
         leafMat.diffuseColor = leafColors[j] ?? new Color3(0.18, 0.42, 0.118);
+        leafMat.specularColor = Color3.Black();
         leaf.material = leafMat;
       }
     }

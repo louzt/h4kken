@@ -1,23 +1,25 @@
 // ============================================================
 // H4KKEN - Fighter (Model, Animation, State Machine, Physics)
-// Babylon.js — FBX assets via babylonjs-fbx-loader
+// Babylon.js — GLB assets (Quaternius Universal Animation Library)
 // ============================================================
 
+// Side-effect import: registers the glTF/GLB loader plugin with SceneLoader
+import '@babylonjs/loaders/glTF';
 import {
   type AbstractMesh,
   type AnimationGroup,
   type Bone,
   Color3,
+  type ISceneLoaderAsyncResult,
   PBRMaterial,
+  Quaternion,
   type Scene,
   SceneLoader,
   type Skeleton,
   StandardMaterial,
-  Texture,
-  type TransformNode,
+  TransformNode,
   Vector3,
 } from '@babylonjs/core';
-import { FBXLoader } from 'babylonjs-fbx-loader';
 import {
   CombatSystem,
   FIGHTER_STATE,
@@ -30,41 +32,39 @@ import {
 import type { InputState } from './Input';
 import type { FighterStateSync } from './Network';
 
-// Register the FBX plugin once at module load
-SceneLoader.RegisterPlugin(new FBXLoader());
-
 export interface SharedAssets {
-  baseRoot: TransformNode;
+  baseMeshes: AbstractMesh[];
   baseSkeleton: Skeleton | null;
   animGroups: Record<string, AnimationGroup>;
-  texture: Texture;
 }
 
 const GC = GAME_CONSTANTS;
 
-const ANIM_FILES: Record<string, string> = {
-  idle: 'Arnold_Idle.fbx',
-  combatIdle: 'Arnold_Combat_Idle.fbx',
-  crouchIdle: 'Arnold_Crouch_Idle.fbx',
-  crouchWalk: 'Arnold_Crouch_Walk.fbx',
-  walk: 'Arnold_Walk.fbx',
-  walkBack: 'Arnold_Walk_Backwards.fbx',
-  walkLeft: 'Arnold_Walk_Left.fbx',
-  walkRight: 'Arnold_Walk_Right.fbx',
-  run: 'Arnold_Run.fbx',
-  runBack: 'Arnold_Run_back.fbx',
-  sprint: 'Arnold_Sprint.fbx',
-  jump: 'Arnold_Jump.fbx',
-  falling: 'Arnold_Falling.fbx',
-  landing: 'Arnold_Landing.fbx',
-  punch1: 'Arnold_Punch_01.fbx',
-  punch2: 'Arnold_Punch_02.fbx',
-  heavyPunch: 'Arnold_Heavy_Punch.fbx',
-  hurt1: 'Arnold_Hurt_01.fbx',
-  hurt2: 'Arnold_Hurt_02.fbx',
-  leanRight: 'Arnold_Lean_Right.fbx',
-  leanLeft: 'Arnold_Left_Left.fbx',
-  victory: 'Arnold_Victory.fbx',
+// Maps game animation names to animation names inside the GLB file.
+// Animations not available in the pack are mapped to a close substitute.
+const ANIM_MAP: Record<string, string> = {
+  idle: 'Idle_Loop',
+  combatIdle: 'Idle_Loop',
+  crouchIdle: 'Crouch_Idle_Loop',
+  crouchWalk: 'Crouch_Fwd_Loop',
+  walk: 'Walk_Loop',
+  walkBack: 'Walk_Loop',
+  walkLeft: 'Walk_Loop',
+  walkRight: 'Walk_Loop',
+  run: 'Jog_Fwd_Loop',
+  runBack: 'Jog_Fwd_Loop',
+  sprint: 'Sprint_Loop',
+  jump: 'Jump_Start',
+  falling: 'Jump_Loop',
+  landing: 'Jump_Land',
+  punch1: 'Punch_Jab',
+  punch2: 'Punch_Cross',
+  heavyPunch: 'Sword_Attack',
+  hurt1: 'Hit_Chest',
+  hurt2: 'Hit_Head',
+  leanRight: 'Idle_Loop',
+  leanLeft: 'Idle_Loop',
+  victory: 'Dance_Loop',
 };
 
 const LOOP_ANIMS = new Set([
@@ -117,6 +117,7 @@ export class Fighter {
   runFrames: number;
   landingTimer: number;
   hitFlash: number;
+  private _rootRotY = 0;
 
   constructor(playerIndex: number, scene: Scene) {
     this.playerIndex = playerIndex;
@@ -129,10 +130,13 @@ export class Fighter {
 
     this.state = FIGHTER_STATE.IDLE;
     this.previousState = FIGHTER_STATE.IDLE;
+    // Camera at Z=-10 looks toward +Z. In Babylon left-handed: +X = screen RIGHT, -X = screen LEFT.
+    // Player 0 (P1) spawns at X=-3 → screen LEFT (traditional fighting game convention).
     this.position = new Vector3(playerIndex === 0 ? -3 : 3, 0, 0);
     this.velocity = new Vector3(0, 0, 0);
     this.facing = 1;
-    // Babylon left-handed: fighter 0 faces +X direction (angle 0), fighter 1 faces -X (angle PI)
+    // P1 at X=-3 faces +X (toward opponent at X=+3) → angle = 0
+    // P2 at X=+3 faces -X (toward opponent at X=-3) → angle = PI
     this.facingAngle = playerIndex === 0 ? 0 : Math.PI;
     this.health = GC.MAX_HEALTH;
     this.maxHealth = GC.MAX_HEALTH;
@@ -165,173 +169,149 @@ export class Fighter {
   }
 
   // FBX loader prefixes every bone as "<meshName>-<boneName>".
-  // Strip that prefix so we can match bones across different FBX files.
+  // Strip that prefix so we can match bones across different sources.
   private static _boneSuffix(name: string): string {
     const idx = name.indexOf('-');
     return idx >= 0 ? name.substring(idx + 1) : name;
   }
 
-  private static _applyTexture(meshes: AbstractMesh[], texture: Texture) {
-    for (const mesh of meshes) {
-      mesh.receiveShadows = true;
-      if (!mesh.material) continue;
-      const mat = mesh.material;
-      if (mat instanceof PBRMaterial) {
-        mat.albedoTexture = texture;
-      } else if (mat instanceof StandardMaterial) {
-        mat.diffuseTexture = texture;
-      }
-    }
+  // GLB (glTF) is Y-up by spec — no axis correction needed.
+  // Only the Y rotation for facing direction is applied here.
+  private static _makeRootQuat(rotY: number): Quaternion {
+    return Quaternion.RotationAxis(Vector3.Up(), rotY);
   }
 
-  private static _retargetGroup(
-    srcGroup: AnimationGroup,
-    baseSkeleton: { bones: { name: string }[] },
-  ) {
-    for (const ta of srcGroup.targetedAnimations) {
-      const target = ta.target;
-      if (target && typeof target === 'object' && 'name' in target) {
-        const boneName = (target as { name: string }).name;
-        const boneSuffix = Fighter._boneSuffix(boneName);
-        const baseBone = baseSkeleton.bones.find((b) => Fighter._boneSuffix(b.name) === boneSuffix);
-        if (baseBone) ta.target = baseBone;
-      }
+  private static _unlinkBonesFromTransformNodes(skeleton: Skeleton) {
+    for (const bone of skeleton.bones) {
+      bone.linkTransformNode(null);
     }
-  }
-
-  private static _disposeImportResult(r: {
-    meshes: AbstractMesh[];
-    skeletons: { dispose(): void }[];
-    transformNodes: TransformNode[];
-  }) {
-    for (const m of r.meshes) m.dispose();
-    for (const s of r.skeletons) s.dispose();
-    for (const n of r.transformNodes) n.dispose();
   }
 
   static async loadAssets(scene: Scene, onProgress?: (p: number) => void): Promise<SharedAssets> {
-    const basePath = '/assets/models/';
-    const texturePath = '/assets/textures/BaseColor.png';
-    const totalFiles = Object.keys(ANIM_FILES).length + 1;
-    let loaded = 0;
+    const result: ISceneLoaderAsyncResult = await SceneLoader.ImportMeshAsync(
+      null,
+      '/assets/models/',
+      'character.glb',
+      scene,
+    );
+    onProgress?.(1);
 
-    const report = () => {
-      loaded++;
-      onProgress?.(loaded / totalFiles);
-    };
+    console.log(
+      '[H4KKEN] GLB loaded:',
+      `meshes=${result.meshes.length}`,
+      `skeletons=${result.skeletons.length}`,
+      `transformNodes=${result.transformNodes.length}`,
+      `animGroups=${result.animationGroups.length}`,
+      result.animationGroups.map((ag) => ag.name),
+    );
 
-    const baseResult = await SceneLoader.ImportMeshAsync(null, basePath, 'Arnold.fbx', scene);
-    report();
+    // Stop all animations — each fighter drives its own cloned groups
+    for (const ag of result.animationGroups) ag.stop();
 
-    const baseRoot = baseResult.transformNodes[0] ?? baseResult.meshes[0];
-    if (!baseRoot) throw new Error('Arnold.fbx: no root node found');
-
-    // FBX exports in centimeters; Babylon works in meters — scale down by 0.01
-    baseRoot.scaling.setAll(0.01);
-
-    console.log('[H4KKEN] Base model loaded (FBX)');
-
-    const texture = new Texture(texturePath, scene);
-    texture.gammaSpace = true;
-    Fighter._applyTexture(baseResult.meshes, texture);
-
-    for (const m of baseResult.meshes) m.setEnabled(false);
-    for (const n of baseResult.transformNodes) n.setEnabled(false);
-    if (baseResult.skeletons[0]) baseResult.skeletons[0].returnToRest();
-
-    const baseSkeleton = baseResult.skeletons[0];
+    // Map game animation names to loaded AnimationGroup objects
     const animGroups: Record<string, AnimationGroup> = {};
-    const animEntries = Object.entries(ANIM_FILES);
-
-    for (let i = 0; i < animEntries.length; i += 4) {
-      const batch = animEntries.slice(i, i + 4);
-      const results = await Promise.all(
-        batch.map(([name, file]) =>
-          SceneLoader.ImportMeshAsync(null, basePath, file, scene).then((r) => {
-            report();
-            return { name, r };
-          }),
-        ),
-      );
-
-      for (const { name, r } of results) {
-        const srcGroup = r.animationGroups[0];
-        if (!srcGroup) {
-          console.warn(`[H4KKEN] No animation group in ${name}`);
-          Fighter._disposeImportResult(r);
-          continue;
-        }
-
-        if (baseSkeleton) Fighter._retargetGroup(srcGroup, baseSkeleton);
-
-        srcGroup.name = name;
-        animGroups[name] = srcGroup;
-        console.log(`[H4KKEN] Anim "${name}": ${srcGroup.to.toFixed(2)}s`);
-
-        Fighter._disposeImportResult(r);
+    for (const [gameName, glbName] of Object.entries(ANIM_MAP)) {
+      const found = result.animationGroups.find((ag) => ag.name === glbName);
+      if (found) {
+        animGroups[gameName] = found;
+      } else {
+        console.warn(`[H4KKEN] Anim "${gameName}" (GLB: "${glbName}") not found`);
       }
     }
 
-    return {
-      baseRoot: baseRoot as TransformNode,
-      baseSkeleton: baseResult.skeletons[0] ?? null,
-      animGroups,
-      texture,
-    };
+    const baseSkeleton = result.skeletons[0] ?? null;
+
+    // Collect meshes that have geometry (skip the synthetic __root__ node)
+    const baseMeshes: AbstractMesh[] = [];
+    for (const m of result.meshes) {
+      if (!m.getTotalVertices || m.getTotalVertices() === 0) continue;
+      m.setEnabled(false);
+      baseMeshes.push(m);
+    }
+    for (const n of result.transformNodes) n.setEnabled(false);
+
+    console.log(
+      '[H4KKEN] Base meshes:',
+      baseMeshes.map((m) => m.name),
+      '| skeleton:',
+      baseSkeleton?.name ?? 'none',
+    );
+
+    return { baseMeshes, baseSkeleton, animGroups };
   }
 
   init(assets: SharedAssets) {
-    const { baseRoot, baseSkeleton, animGroups, texture } = assets;
+    const { baseMeshes, baseSkeleton, animGroups } = assets;
 
-    // Clone root node — recursively clones child meshes too
-    const cloned = baseRoot.clone(`fighter${this.playerIndex}`, null);
-    if (!cloned) throw new Error(`Failed to clone model for fighter ${this.playerIndex}`);
-    this.rootNode = cloned as TransformNode;
+    // Each fighter gets a fresh root TransformNode as its positional anchor
+    this.rootNode = new TransformNode(`fighter${this.playerIndex}_root`, this.scene);
 
-    // Clone the skeleton so each fighter has independent bone state.
-    // Without this the two fighters share one skeleton and animate each other.
     const clonedSkeleton = baseSkeleton
       ? baseSkeleton.clone(`skeleton_f${this.playerIndex}`, `skel_${this.playerIndex}`)
       : null;
 
-    // Collect cloned meshes and reassign to the cloned skeleton
-    this.meshes = [];
-    for (const m of this.rootNode.getChildMeshes(false)) {
-      this.meshes.push(m);
-      m.setEnabled(true);
-      m.receiveShadows = true;
-      if (clonedSkeleton && m.skeleton) m.skeleton = clonedSkeleton;
+    if (clonedSkeleton) {
+      // Unlink bones from the base TransformNodes so animation drives them directly
+      Fighter._unlinkBonesFromTransformNodes(clonedSkeleton);
     }
-    this.rootNode.setEnabled(true);
 
-    // Player 2 gets a red tint
+    // Clone each base mesh, parenting it to this fighter's root node
+    this.meshes = [];
+    for (const baseMesh of baseMeshes) {
+      const cloned = baseMesh.clone(`f${this.playerIndex}_${baseMesh.name}`, this.rootNode);
+      if (!cloned) continue;
+      cloned.setEnabled(true);
+      cloned.receiveShadows = true;
+      if (clonedSkeleton && cloned.skeleton) cloned.skeleton = clonedSkeleton;
+      this.meshes.push(cloned);
+    }
+
+    // Player 2 gets a red tint on its materials
     if (this.playerIndex === 1) {
       for (const mesh of this.meshes) {
-        if (mesh.material) {
-          const clonedMat = mesh.material.clone(`p2mat_${mesh.name}`);
-          if (!clonedMat) continue;
-          if (clonedMat instanceof PBRMaterial) {
-            clonedMat.albedoTexture = texture;
-            clonedMat.albedoColor = new Color3(0.6, 0.4, 0.4);
-            clonedMat.emissiveColor = new Color3(0.15, 0.02, 0.02);
-          } else if (clonedMat instanceof StandardMaterial) {
-            clonedMat.diffuseTexture = texture;
-            clonedMat.diffuseColor = new Color3(0.6, 0.4, 0.4);
-            clonedMat.emissiveColor = new Color3(0.15, 0.02, 0.02);
-          }
-          mesh.material = clonedMat;
+        if (!mesh.material) continue;
+        const mat = mesh.material.clone(`p2mat_${mesh.name}`);
+        if (!mat) continue;
+        if (mat instanceof PBRMaterial) {
+          mat.albedoColor = new Color3(0.7, 0.3, 0.3);
+          mat.emissiveColor = new Color3(0.15, 0.02, 0.02);
+        } else if (mat instanceof StandardMaterial) {
+          mat.diffuseColor = new Color3(0.7, 0.3, 0.3);
+          mat.emissiveColor = new Color3(0.15, 0.02, 0.02);
         }
+        mesh.material = mat;
       }
     }
 
-    // Build a suffix→Bone map for the cloned skeleton so the animation
-    // clone callback can remap bone targets correctly across FBX prefixes.
+    // Build suffix→Bone map so _cloneAnimGroups can remap targets to cloned bones
     const boneByName = new Map<string, Bone>();
     if (clonedSkeleton) {
-      for (const bone of clonedSkeleton.bones) boneByName.set(Fighter._boneSuffix(bone.name), bone);
+      for (const bone of clonedSkeleton.bones) {
+        boneByName.set(Fighter._boneSuffix(bone.name), bone);
+      }
+      console.log(
+        `[H4KKEN] F${this.playerIndex} skeleton "${clonedSkeleton.name}":`,
+        `${clonedSkeleton.bones.length} bones`,
+        `meshes=${this.meshes.length}`,
+      );
     }
 
-    // Clone animation groups, remapping each targeted bone to the cloned skeleton
+    this._cloneAnimGroups(animGroups, boneByName);
+
+    this.rootNode.position.copyFrom(this.position);
+    // initRotY must match PI/2 + facingAngle used in updateVisuals().
+    // P0 facingAngle=0  → PI/2;  P1 facingAngle=PI → -PI/2
+    const initRotY = this.playerIndex === 0 ? Math.PI / 2 : -Math.PI / 2;
+    this._rootRotY = initRotY;
+    this.rootNode.rotationQuaternion = Fighter._makeRootQuat(initRotY);
+
+    this.playAnimation('combatIdle', 0.2);
+  }
+
+  private _cloneAnimGroups(
+    animGroups: Record<string, AnimationGroup>,
+    boneByName: Map<string, Bone>,
+  ) {
     for (const [name, srcGroup] of Object.entries(animGroups)) {
       const clonedGroup = srcGroup.clone(`f${this.playerIndex}_${name}`, (target) => {
         if (target && typeof target === 'object' && 'name' in target) {
@@ -344,12 +324,6 @@ export class Fighter {
       clonedGroup.loopAnimation = LOOP_ANIMS.has(name);
       this.animGroups[name] = clonedGroup;
     }
-
-    this.rootNode.position.copyFrom(this.position);
-    // Babylon left-handed: negate rotation vs Three.js
-    this.rootNode.rotation.y = this.facing > 0 ? -Math.PI / 2 : Math.PI / 2;
-
-    this.playAnimation('combatIdle', 0.2);
   }
 
   playAnimation(name: string, _crossfadeDuration = 0.15, speed = 1.0) {
@@ -391,7 +365,11 @@ export class Fighter {
     this.landingTimer = 0;
     this.hitFlash = 0;
     this.facing = 1;
-    this.facingAngle = startX < 0 ? 0 : Math.PI;
+    this.facingAngle = startX > 0 ? Math.PI : 0;
+    this._rootRotY = Math.PI / 2 + this.facingAngle;
+    if (this.rootNode) {
+      this.rootNode.rotationQuaternion = Fighter._makeRootQuat(this._rootRotY);
+    }
 
     this.playAnimation('combatIdle', 0.3);
   }
@@ -917,12 +895,14 @@ export class Fighter {
 
     this.rootNode.position.copyFrom(this.position);
 
-    // Babylon left-handed rotation: negate compared to Three.js
-    const targetRotY = -(Math.PI / 2 - this.facingAngle);
-    let diff = targetRotY - this.rootNode.rotation.y;
+    // Quaternius character natively faces +Z. Facing angle is the world-space direction to opponent.
+    // targetRotY = PI/2 + facingAngle rotates the +Z-facing model to look in the facingAngle direction.
+    const targetRotY = Math.PI / 2 + this.facingAngle;
+    let diff = targetRotY - this._rootRotY;
     while (diff > Math.PI) diff -= 2 * Math.PI;
     while (diff < -Math.PI) diff += 2 * Math.PI;
-    this.rootNode.rotation.y += diff * 0.2;
+    this._rootRotY += diff * 0.2;
+    this.rootNode.rotationQuaternion = Fighter._makeRootQuat(this._rootRotY);
 
     if (this.hitFlash >= 0) {
       const flashActive = this.hitFlash > 0;

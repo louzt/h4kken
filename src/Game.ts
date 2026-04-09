@@ -8,6 +8,7 @@ import {
   DefaultRenderingPipeline,
   Engine,
   FreeCamera,
+  ImageProcessingConfiguration,
   type Mesh,
   MeshBuilder,
   Scene,
@@ -92,9 +93,16 @@ export class Game {
     const pipeline = new DefaultRenderingPipeline('pipeline', true, this.scene, [this.camera]);
     pipeline.bloomEnabled = true;
     pipeline.bloomThreshold = 0.82;
-    pipeline.bloomWeight = 0.55;
+    pipeline.bloomWeight = 0.35;
     pipeline.bloomKernel = 64;
     pipeline.bloomScale = 0.5;
+
+    // ACES tone mapping + slight contrast boost — kills the washed-out plastic look
+    const imgProc = this.scene.imageProcessingConfiguration;
+    imgProc.toneMappingEnabled = true;
+    imgProc.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
+    imgProc.exposure = 1.0;
+    imgProc.contrast = 1.2;
 
     this.input = new InputManager();
     this.fightCamera = new FightCamera(this.camera);
@@ -326,6 +334,17 @@ export class Game {
 
     this.fighters[1] = new Fighter(1, this.scene);
     this.fighters[1].init(this.sharedAssets);
+
+    // Register fighter meshes as shadow casters so they cast onto the arena floor
+    const shadowGen = this.stage?.shadowGenerator;
+    if (shadowGen) {
+      for (const fighter of this.fighters) {
+        if (!fighter) continue;
+        for (const mesh of fighter.meshes) {
+          shadowGen.addShadowCaster(mesh, true);
+        }
+      }
+    }
   }
 
   prepareMatch() {

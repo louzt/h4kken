@@ -53,7 +53,9 @@ export class FightCamera {
 
     if (fighterDist > 0.1) {
       const fightAngle = Math.atan2(dz, dx);
-      const targetOrbit = fightAngle + Math.PI / 2;
+      // Camera orbits perpendicular to the fight axis. Subtract PI/2 so the camera
+      // stays on the -Z side (initial orbitAngle), keeping local player on screen LEFT.
+      const targetOrbit = fightAngle - Math.PI / 2;
 
       let angleDiff = targetOrbit - this.orbitAngle;
       while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
