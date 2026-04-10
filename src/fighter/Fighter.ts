@@ -11,6 +11,8 @@ import {
   type Bone,
   Color3,
   Color4,
+  DynamicTexture,
+  GlowLayer,
   HighlightLayer,
   type Mesh,
   ParticleSystem,
@@ -102,7 +104,9 @@ export class Fighter {
   currentAnimKey: string;
   onSuperDeactivate: (() => void) | null = null;
   private _highlightLayer: HighlightLayer | null;
+  private _glowLayer: GlowLayer | null;
   private _superParticles: ParticleSystem | null;
+  private _superCoreParticles: ParticleSystem | null;
   private _rootRotY = 0;
   _introActive = false;
   _introTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -162,7 +166,9 @@ export class Fighter {
     this._pendingSuperActivation = false;
     this.currentAnimKey = '';
     this._highlightLayer = null;
+    this._glowLayer = null;
     this._superParticles = null;
+    this._superCoreParticles = null;
   }
 
   // FBX loader prefixes every bone as "<meshName>-<boneName>".
@@ -318,46 +324,123 @@ export class Fighter {
     }
   }
 
+  // Canvas-based soft radial gradient texture — makes particles look like glowing fire blobs
+  // instead of hard opaque dots.
+  private _createFireParticleTexture(): DynamicTexture {
+    const size = 64;
+    const tex = new DynamicTexture(
+      `fireTex_${this.playerIndex}`,
+      { width: size, height: size },
+      this.scene,
+      false,
+    );
+    const ctx = tex.getContext() as CanvasRenderingContext2D;
+    const cx = size / 2;
+    const grad = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx);
+    grad.addColorStop(0.0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.2, 'rgba(255,220,80,0.9)');
+    grad.addColorStop(0.55, 'rgba(255,80,10,0.5)');
+    grad.addColorStop(1.0, 'rgba(200,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    tex.update();
+    return tex;
+  }
+
   private _initSuperEffects() {
     if (!this.rootNode) return;
+    const isP1 = this.playerIndex === 0;
 
+    // Per-mesh highlight to make the character itself glow
     const hl = new HighlightLayer(`superHL_${this.playerIndex}`, this.scene);
     hl.isEnabled = false;
-    hl.innerGlow = false;
-    const hlColor = this.playerIndex === 0 ? new Color3(0.1, 0.6, 1.0) : new Color3(1.0, 0.25, 0.1);
-    for (const mesh of this.meshes) {
-      hl.addMesh(mesh as Mesh, hlColor);
-    }
+    hl.innerGlow = true;
+    const hlColor = isP1 ? new Color3(0.4, 0.8, 1.0) : new Color3(1.0, 0.55, 0.0);
+    for (const mesh of this.meshes) hl.addMesh(mesh as Mesh, hlColor);
     this._highlightLayer = hl;
 
-    const ps = new ParticleSystem(`superPS_${this.playerIndex}`, 60, this.scene);
-    ps.emitter = this.meshes[0] ?? this.position;
-    ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
-    ps.maxEmitBox = new Vector3(0.3, 0.2, 0.3);
-    ps.direction1 = new Vector3(-0.1, 1.0, -0.1);
-    ps.direction2 = new Vector3(0.1, 1.5, 0.1);
-    ps.minLifeTime = 0.3;
-    ps.maxLifeTime = 0.7;
-    ps.minSize = 0.04;
-    ps.maxSize = 0.1;
-    ps.emitRate = 40;
-    ps.blendMode = ParticleSystem.BLENDMODE_ADD;
-    ps.gravity = new Vector3(0, 0.2, 0);
-    if (this.playerIndex === 0) {
-      ps.color1 = new Color4(0.3, 0.7, 1, 1);
-      ps.color2 = new Color4(0.1, 0.4, 1, 0.8);
-      ps.colorDead = new Color4(0, 0.4, 1, 0);
+    // Scene-wide bloom that intensifies the additive particles
+    const gl = new GlowLayer(`superGL_${this.playerIndex}`, this.scene);
+    gl.isEnabled = false;
+    gl.intensity = 1.2;
+    this._glowLayer = gl;
+
+    const fireTex = this._createFireParticleTexture();
+    const pos = this.rootNode.position; // Vector3 ref — updated every frame
+
+    // ── Outer aura: tall rising flame column from the feet ─────────────────
+    const aura = new ParticleSystem(`superAura_${this.playerIndex}`, 600, this.scene);
+    aura.particleTexture = fireTex;
+    aura.emitter = pos;
+    // Flat disk at feet — particles shoot upward in a column
+    aura.minEmitBox = new Vector3(-0.55, 0.0, -0.55);
+    aura.maxEmitBox = new Vector3(0.55, 0.08, 0.55);
+    aura.direction1 = new Vector3(-0.3, 5.0, -0.3);
+    aura.direction2 = new Vector3(0.3, 10.0, 0.3);
+    aura.minLifeTime = 0.55;
+    aura.maxLifeTime = 1.1;
+    aura.minSize = 0.35;
+    aura.maxSize = 0.85;
+    // Elongate on Y so particles look like flame tongues
+    aura.minScaleX = 0.35;
+    aura.maxScaleX = 0.7;
+    aura.minScaleY = 2.0;
+    aura.maxScaleY = 4.0;
+    aura.emitRate = 260;
+    aura.blendMode = ParticleSystem.BLENDMODE_ADD;
+    aura.gravity = new Vector3(0, 0, 0);
+    aura.minAngularSpeed = -2.0;
+    aura.maxAngularSpeed = 2.0;
+    // Color over lifetime: bright core → colored → fade out
+    if (isP1) {
+      aura.addColorGradient(0.0, new Color4(1.0, 1.0, 1.0, 1.0));
+      aura.addColorGradient(0.2, new Color4(0.5, 0.8, 1.0, 1.0));
+      aura.addColorGradient(0.6, new Color4(0.1, 0.4, 1.0, 0.7));
+      aura.addColorGradient(1.0, new Color4(0.0, 0.1, 0.8, 0.0));
     } else {
-      ps.color1 = new Color4(1.0, 0.4, 0.1, 1);
-      ps.color2 = new Color4(1.0, 0.2, 0.0, 0.8);
-      ps.colorDead = new Color4(0, 0, 0, 0);
+      aura.addColorGradient(0.0, new Color4(1.0, 1.0, 1.0, 1.0));
+      aura.addColorGradient(0.2, new Color4(1.0, 0.9, 0.3, 1.0));
+      aura.addColorGradient(0.6, new Color4(1.0, 0.35, 0.0, 0.7));
+      aura.addColorGradient(1.0, new Color4(0.8, 0.05, 0.0, 0.0));
     }
-    this._superParticles = ps;
+    // Size over lifetime: grow then shrink (flame tip narrows)
+    aura.addSizeGradient(0.0, 0.4);
+    aura.addSizeGradient(0.3, 1.0);
+    aura.addSizeGradient(1.0, 0.1);
+    this._superParticles = aura;
+
+    // ── Inner core: rapid bright sparks crackling around the body ──────────
+    const core = new ParticleSystem(`superCore_${this.playerIndex}`, 300, this.scene);
+    core.particleTexture = fireTex;
+    core.emitter = pos;
+    core.minEmitBox = new Vector3(-0.3, 0.1, -0.3);
+    core.maxEmitBox = new Vector3(0.3, 1.9, 0.3);
+    core.direction1 = new Vector3(-1.2, 1.5, -1.2);
+    core.direction2 = new Vector3(1.2, 4.0, 1.2);
+    core.minLifeTime = 0.12;
+    core.maxLifeTime = 0.35;
+    core.minSize = 0.1;
+    core.maxSize = 0.28;
+    core.emitRate = 200;
+    core.blendMode = ParticleSystem.BLENDMODE_ADD;
+    core.gravity = new Vector3(0, 0, 0);
+    if (isP1) {
+      core.addColorGradient(0.0, new Color4(1.0, 1.0, 1.0, 1.0));
+      core.addColorGradient(0.4, new Color4(0.6, 0.85, 1.0, 0.9));
+      core.addColorGradient(1.0, new Color4(0.2, 0.5, 1.0, 0.0));
+    } else {
+      core.addColorGradient(0.0, new Color4(1.0, 1.0, 0.8, 1.0));
+      core.addColorGradient(0.4, new Color4(1.0, 0.55, 0.1, 0.9));
+      core.addColorGradient(1.0, new Color4(1.0, 0.2, 0.0, 0.0));
+    }
+    this._superCoreParticles = core;
   }
 
   private _destroySuperEffects() {
     if (this._highlightLayer) this._highlightLayer.isEnabled = false;
+    if (this._glowLayer) this._glowLayer.isEnabled = false;
     this._superParticles?.stop();
+    this._superCoreParticles?.stop();
   }
 
   activateSuperPower() {
@@ -373,7 +456,9 @@ export class Fighter {
     this._superWasActivatedThisRound = true;
     this._pendingSuperActivation = false;
     if (this._highlightLayer) this._highlightLayer.isEnabled = true;
+    if (this._glowLayer) this._glowLayer.isEnabled = true;
     this._superParticles?.start();
+    this._superCoreParticles?.start();
     if (this.animGroups.superActivate) {
       this.playAnimation('superActivate');
     } else {
@@ -753,9 +838,11 @@ export class Fighter {
     }
 
     if (this.superPowerActive && this._highlightLayer) {
-      const pulse = 0.5 + 0.3 * Math.sin(Date.now() / 250);
+      const t = Date.now();
+      const pulse = 0.6 + 0.5 * Math.sin(t / 200);
       this._highlightLayer.blurHorizontalSize = pulse;
       this._highlightLayer.blurVerticalSize = pulse;
+      if (this._glowLayer) this._glowLayer.intensity = 0.7 + 0.6 * Math.sin(t / 180);
     }
   }
 
@@ -825,7 +912,9 @@ export class Fighter {
       this.superPowerActive = data.superPowerActive;
       if (this.superPowerActive) {
         if (this._highlightLayer) this._highlightLayer.isEnabled = true;
+        if (this._glowLayer) this._glowLayer.isEnabled = true;
         this._superParticles?.start();
+        this._superCoreParticles?.start();
       } else {
         this._destroySuperEffects();
         this._superActivationLock = false;
