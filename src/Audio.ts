@@ -11,12 +11,6 @@ const SPATIAL_OPTS = {
   maxDistance: 100,
 } as const;
 
-const FLAT_OPTS = {
-  loop: false,
-  autoplay: false,
-  spatialSound: false,
-} as const;
-
 const BGM_OPTS = {
   loop: true,
   autoplay: false,
@@ -98,69 +92,74 @@ export class BgmManager {
   }
 }
 
-const MANIFEST: Record<string, { files: string[]; spatial: boolean }> = {
-  hit_heavy: {
-    spatial: true,
-    files: [
-      'hit_heavy_000.ogg',
-      'hit_heavy_001.ogg',
-      'hit_heavy_002.ogg',
-      'hit_heavy_003.ogg',
-      'hit_heavy_004.ogg',
-    ],
-  },
-  hit_light: {
-    spatial: true,
-    files: ['hit_light_000.ogg', 'hit_light_001.ogg'],
-  },
-  block: {
-    spatial: true,
-    files: ['block_000.ogg', 'block_001.ogg', 'block_002.ogg'],
-  },
-  ko_bell: { spatial: false, files: ['ko_bell.ogg'] },
-  announce_fight: { spatial: false, files: ['announce_fight.ogg'] },
-  announce_ready: { spatial: false, files: ['announce_ready.ogg'] },
-  announce_round1: { spatial: false, files: ['announce_round1.ogg'] },
-  announce_round2: { spatial: false, files: ['announce_round2.ogg'] },
-  announce_finalround: { spatial: false, files: ['announce_finalround.ogg'] },
-  announce_winner: { spatial: false, files: ['announce_winner.ogg'] },
-  announce_youwin: { spatial: false, files: ['announce_youwin.ogg'] },
-  announce_time: { spatial: false, files: ['announce_time.ogg'] },
-  count_3: { spatial: false, files: ['count_3.ogg'] },
-  count_2: { spatial: false, files: ['count_2.ogg'] },
-  count_1: { spatial: false, files: ['count_1.ogg'] },
+// Flat (non-spatial) sounds use HTMLAudioElement instead of Babylon.js Sound.
+// This completely bypasses the Web Audio API AudioBufferSourceNode, which avoids
+// a known Babylon.js/Web Audio bug where the BGM's loop:true state can bleed into
+// other sounds' source nodes — causing them to loop forever.
+const FLAT_MANIFEST: Record<string, string[]> = {
+  ko_bell: ['ko_bell.ogg'],
+  announce_fight: ['announce_fight.ogg'],
+  announce_ready: ['announce_ready.ogg'],
+  announce_round1: ['announce_round1.ogg'],
+  announce_round2: ['announce_round2.ogg'],
+  announce_finalround: ['announce_finalround.ogg'],
+  announce_winner: ['announce_winner.ogg'],
+  announce_youwin: ['announce_youwin.ogg'],
+  announce_time: ['announce_time.ogg'],
+  count_3: ['count_3.ogg'],
+  count_2: ['count_2.ogg'],
+  count_1: ['count_1.ogg'],
+};
+
+const SPATIAL_MANIFEST: Record<string, string[]> = {
+  hit_heavy: [
+    'hit_heavy_000.ogg',
+    'hit_heavy_001.ogg',
+    'hit_heavy_002.ogg',
+    'hit_heavy_003.ogg',
+    'hit_heavy_004.ogg',
+  ],
+  hit_light: ['hit_light_000.ogg', 'hit_light_001.ogg'],
+  block: ['block_000.ogg', 'block_001.ogg', 'block_002.ogg'],
 };
 
 export class AudioManager {
-  private sounds = new Map<string, Sound[]>();
+  private spatialSounds = new Map<string, Sound[]>();
+  private flatSounds = new Map<string, HTMLAudioElement[]>();
   private indices = new Map<string, number>();
 
   async load(scene: Scene): Promise<void> {
     const base = '/assets/sounds/';
     const promises: Promise<void>[] = [];
 
-    for (const [name, { files, spatial }] of Object.entries(MANIFEST)) {
-      const opts = spatial ? SPATIAL_OPTS : FLAT_OPTS;
+    for (const [name, files] of Object.entries(SPATIAL_MANIFEST)) {
       const loaded: Sound[] = [];
-
       for (const file of files) {
         promises.push(
           new Promise<void>((resolve) => {
-            const snd = new Sound(name, base + file, scene, resolve, opts);
+            const snd = new Sound(name, base + file, scene, resolve, SPATIAL_OPTS);
             loaded.push(snd);
           }),
         );
       }
+      this.spatialSounds.set(name, loaded);
+    }
 
-      this.sounds.set(name, loaded);
+    for (const [name, files] of Object.entries(FLAT_MANIFEST)) {
+      const loaded: HTMLAudioElement[] = [];
+      for (const file of files) {
+        const audio = new Audio(base + file);
+        audio.preload = 'auto';
+        loaded.push(audio);
+      }
+      this.flatSounds.set(name, loaded);
     }
 
     await Promise.all(promises);
   }
 
-  // Round-robin through variants so the same sound doesn't repeat back-to-back
-  private _pick(name: string): Sound | null {
-    const variants = this.sounds.get(name);
+  private _pickSpatial(name: string): Sound | null {
+    const variants = this.spatialSounds.get(name);
     if (!variants || variants.length === 0) return null;
     const prev = this.indices.get(name) ?? -1;
     const next = (prev + 1) % variants.length;
@@ -168,29 +167,37 @@ export class AudioManager {
     return variants[next] ?? null;
   }
 
-  // Force-reset loop state and kill any stuck playback before starting.
-  // Works around a Web Audio / Babylon.js edge case where the underlying
-  // AudioBufferSourceNode can get stuck in loop mode after audio-context
-  // suspend/resume cycles (tab backgrounding, high-latency reconnects).
-  private _safePlay(snd: Sound, volume: number) {
-    if (snd.isPlaying) snd.stop();
-    snd.loop = false;
-    snd.setVolume(volume);
-    snd.play();
+  private _pickFlat(name: string): HTMLAudioElement | null {
+    const variants = this.flatSounds.get(name);
+    if (!variants || variants.length === 0) return null;
+    const prev = this.indices.get(name) ?? -1;
+    const next = (prev + 1) % variants.length;
+    this.indices.set(name, next);
+    return variants[next] ?? null;
   }
 
   // Spatial sound anchored to a world position
   playAt(name: string, pos: Vector3, volume = 1.0) {
-    const snd = this._pick(name);
+    const snd = this._pickSpatial(name);
     if (!snd) return;
     snd.setPosition(pos);
-    this._safePlay(snd, volume);
+    if (snd.isPlaying) snd.stop();
+    snd.setVolume(volume);
+    snd.play();
   }
 
-  // Non-spatial (UI / announcer) sound
+  // Non-spatial (UI / announcer) sound via HTMLAudioElement.
+  // HTMLAudioElement never inherits loop state from other audio sources —
+  // it uses the browser's native media pipeline, not the Web Audio API graph.
   play(name: string, volume = 1.0) {
-    const snd = this._pick(name);
-    if (!snd) return;
-    this._safePlay(snd, volume);
+    const audio = this._pickFlat(name);
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+    audio.loop = false;
+    audio.volume = Math.max(0, Math.min(1, volume));
+    audio.play().catch(() => {
+      // Autoplay may be blocked before first user interaction; silently ignore.
+    });
   }
 }
