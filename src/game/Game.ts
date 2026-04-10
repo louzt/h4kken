@@ -71,6 +71,7 @@ export class Game {
   onResize: () => void;
   _roundResetting: boolean;
   _nextRoundTimeout: ReturnType<typeof setTimeout> | null;
+  _lastAnnouncedRound: number;
   private botAI = new BotAI();
 
   constructor() {
@@ -125,6 +126,7 @@ export class Game {
     this.isPractice = false;
     this._roundResetting = false;
     this._nextRoundTimeout = null;
+    this._lastAnnouncedRound = -1;
 
     this.effects = new EffectsManager(this.scene);
 
@@ -248,6 +250,7 @@ export class Game {
     }
     this.round = 0;
     this._roundResetting = false;
+    this._lastAnnouncedRound = -1;
     this.fighters[0]?.reset(-3);
     this.fighters[1]?.reset(3);
     if (this.fighters[0]) this.fighters[0].wins = 0;

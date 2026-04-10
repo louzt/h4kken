@@ -119,6 +119,11 @@ function broadcastToRoom(room: Room, message: object) {
 }
 
 function startCountdown(room: Room) {
+  // Kill any in-flight countdown chain before starting a new one
+  if (room.countdownTimer) {
+    clearTimeout(room.countdownTimer);
+    room.countdownTimer = null;
+  }
   room.state = 'countdown';
   let count = 3;
 

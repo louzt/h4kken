@@ -168,20 +168,29 @@ export class AudioManager {
     return variants[next] ?? null;
   }
 
+  // Force-reset loop state and kill any stuck playback before starting.
+  // Works around a Web Audio / Babylon.js edge case where the underlying
+  // AudioBufferSourceNode can get stuck in loop mode after audio-context
+  // suspend/resume cycles (tab backgrounding, high-latency reconnects).
+  private _safePlay(snd: Sound, volume: number) {
+    if (snd.isPlaying) snd.stop();
+    snd.loop = false;
+    snd.setVolume(volume);
+    snd.play();
+  }
+
   // Spatial sound anchored to a world position
   playAt(name: string, pos: Vector3, volume = 1.0) {
     const snd = this._pick(name);
     if (!snd) return;
     snd.setPosition(pos);
-    snd.setVolume(volume);
-    snd.play();
+    this._safePlay(snd, volume);
   }
 
   // Non-spatial (UI / announcer) sound
   play(name: string, volume = 1.0) {
     const snd = this._pick(name);
     if (!snd) return;
-    snd.setVolume(volume);
-    snd.play();
+    this._safePlay(snd, volume);
   }
 }
