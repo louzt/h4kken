@@ -60,6 +60,50 @@ export interface SharedAssets {
 
 const GC = GAME_CONSTANTS;
 
+// Reverse lookup: MoveData → key string (for snapshot serialization)
+const MOVE_TO_KEY = new Map<MoveData, string>();
+for (const [key, move] of Object.entries(MOVES)) {
+  MOVE_TO_KEY.set(move, key);
+}
+
+export interface FighterSnapshot {
+  px: number;
+  py: number;
+  pz: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  state: string;
+  previousState: string;
+  facing: number;
+  facingAngle: number;
+  health: number;
+  moveId: string | null;
+  moveFrame: number;
+  hasHitThisMove: boolean;
+  isBlocking: boolean;
+  isCrouching: boolean;
+  isGrounded: boolean;
+  comboCount: number;
+  comboDamage: number;
+  comboTimer: number;
+  stunFrames: number;
+  knockdownTimer: number;
+  getupTimer: number;
+  sideStepDir: number;
+  sideStepTimer: number;
+  dashTimer: number;
+  isRunning: boolean;
+  runFrames: number;
+  landingTimer: number;
+  hitFlash: number;
+  superMeter: number;
+  superPowerActive: boolean;
+  superActivationLock: boolean;
+  superWasActivatedThisRound: boolean;
+  pendingSuperActivation: boolean;
+}
+
 export class Fighter {
   playerIndex: number;
   scene: Scene;
@@ -539,6 +583,80 @@ export class Fighter {
     }
 
     this.playAnimation('combatIdle');
+  }
+
+  snapshotSim(): FighterSnapshot {
+    return {
+      px: this.position.x,
+      py: this.position.y,
+      pz: this.position.z,
+      vx: this.velocity.x,
+      vy: this.velocity.y,
+      vz: this.velocity.z,
+      state: this.state,
+      previousState: this.previousState,
+      facing: this.facing,
+      facingAngle: this.facingAngle,
+      health: this.health,
+      moveId: this.currentMove ? (MOVE_TO_KEY.get(this.currentMove) ?? null) : null,
+      moveFrame: this.moveFrame,
+      hasHitThisMove: this.hasHitThisMove,
+      isBlocking: this.isBlocking,
+      isCrouching: this.isCrouching,
+      isGrounded: this.isGrounded,
+      comboCount: this.comboCount,
+      comboDamage: this.comboDamage,
+      comboTimer: this.comboTimer,
+      stunFrames: this.stunFrames,
+      knockdownTimer: this.knockdownTimer,
+      getupTimer: this.getupTimer,
+      sideStepDir: this.sideStepDir,
+      sideStepTimer: this.sideStepTimer,
+      dashTimer: this.dashTimer,
+      isRunning: this.isRunning,
+      runFrames: this.runFrames,
+      landingTimer: this.landingTimer,
+      hitFlash: this.hitFlash,
+      superMeter: this.superMeter,
+      superPowerActive: this.superPowerActive,
+      superActivationLock: this._superActivationLock,
+      superWasActivatedThisRound: this._superWasActivatedThisRound,
+      pendingSuperActivation: this._pendingSuperActivation,
+    };
+  }
+
+  restoreSim(s: FighterSnapshot) {
+    this.position.set(s.px, s.py, s.pz);
+    this.velocity.set(s.vx, s.vy, s.vz);
+    this.state = s.state;
+    this.previousState = s.previousState;
+    this.facing = s.facing;
+    this.facingAngle = s.facingAngle;
+    this.health = s.health;
+    this.currentMove = s.moveId ? (MOVES[s.moveId] ?? null) : null;
+    this.moveFrame = s.moveFrame;
+    this.hasHitThisMove = s.hasHitThisMove;
+    this.isBlocking = s.isBlocking;
+    this.isCrouching = s.isCrouching;
+    this.isGrounded = s.isGrounded;
+    this.comboCount = s.comboCount;
+    this.comboDamage = s.comboDamage;
+    this.comboTimer = s.comboTimer;
+    this.stunFrames = s.stunFrames;
+    this.knockdownTimer = s.knockdownTimer;
+    this.getupTimer = s.getupTimer;
+    this.sideStepDir = s.sideStepDir;
+    this.sideStepTimer = s.sideStepTimer;
+    this.dashTimer = s.dashTimer;
+    this.isRunning = s.isRunning;
+    this.runFrames = s.runFrames;
+    this.landingTimer = s.landingTimer;
+    this.hitFlash = s.hitFlash;
+    this.superMeter = s.superMeter;
+    this.superPowerActive = s.superPowerActive;
+    this._superActivationLock = s.superActivationLock;
+    this._superWasActivatedThisRound = s.superWasActivatedThisRound;
+    this._pendingSuperActivation = s.pendingSuperActivation;
   }
 
   processInput(input: InputState, opponentPos: Vector3) {

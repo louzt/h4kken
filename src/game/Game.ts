@@ -23,8 +23,9 @@ import { Stage } from '../Stage';
 import { UI } from '../UI';
 import { BotAI } from './BotAI';
 import { EffectsManager } from './EffectsManager';
-import { InputSyncBuffer } from './InputSyncBuffer';
 import { setupNetworkEvents } from './NetworkEvents';
+import type { RollbackHost } from './RollbackManager';
+import { RollbackManager } from './RollbackManager';
 
 const GC = GAME_CONSTANTS;
 
@@ -62,9 +63,9 @@ export class Game {
   tickDuration: number;
   accumulator: number;
   frame: number;
-  inputSyncBuffer: InputSyncBuffer | null;
-  private captureFrame: number;
+  rollbackManager: RollbackManager | null;
   private _stallShown = false;
+  _isReplaying = false;
   audio: AudioManager;
   bgm: BgmManager;
   onResize: () => void;
@@ -133,8 +134,7 @@ export class Game {
     this.tickDuration = 1 / this.tickRate;
     this.accumulator = 0;
     this.frame = 0;
-    this.inputSyncBuffer = null;
-    this.captureFrame = 0;
+    this.rollbackManager = null;
 
     this._stallShown = false;
 
@@ -237,20 +237,12 @@ export class Game {
     this.ui.updateTimer(this.roundTimer);
     setTimeout(() => this.playBGM(), 1000);
     this.fightCamera.reset();
-    this.captureFrame = 0;
+    this.frame = 0;
     if (!this.isPractice) {
-      // Adaptive delay: need enough frames to cover one-way latency.
-      // delay = ceil(halfRTT / frameTime) + 1 safety margin, min 2, max 6
-      const halfRtt = this.network.rtt / 2;
-      const delay = Math.max(2, Math.min(6, Math.ceil(halfRtt / (this.tickDuration * 1000)) + 1));
-      this.inputSyncBuffer = new InputSyncBuffer(this.localPlayerIndex as 0 | 1, delay);
-      this.frame = this.inputSyncBuffer.inputDelay;
-      console.log(
-        `[SYNC] RTT=${this.network.rtt}ms → input delay=${delay} frames (${Math.round(delay * this.tickDuration * 1000)}ms)`,
-      );
+      this.rollbackManager = new RollbackManager(this.localPlayerIndex as 0 | 1);
+      console.log(`[SYNC] Rollback netcode active (RTT=${this.network.rtt}ms)`);
     } else {
-      this.inputSyncBuffer = null;
-      this.frame = 0;
+      this.rollbackManager = null;
     }
     this.state = GAME_STATE.COUNTDOWN;
   }
@@ -335,12 +327,11 @@ export class Game {
 
     while (this.accumulator >= this.tickDuration) {
       this.accumulator -= this.tickDuration;
-      if (this.isPractice || !this.inputSyncBuffer) {
+      if (this.isPractice || !this.rollbackManager) {
         this._fixedUpdatePractice();
         this.frame++;
       } else {
-        this._captureInput();
-        this._tryAdvanceSimulation();
+        this._advanceWithRollback();
       }
     }
 
@@ -361,42 +352,74 @@ export class Game {
     this._runSimulationStep(rawInput, p2Input);
   }
 
-  // Multiplayer: capture local input, tag for future sim frame, send to opponent
-  private _captureInput() {
-    // Always pump InputManager so tap/hold timing is accurate even when stalling
+  // Rollback multiplayer: capture input, predict opponent, advance, rollback on misprediction
+  private _advanceWithRollback() {
     const rawInput = this.input.update();
-    if (this.state !== GAME_STATE.FIGHTING || !this.inputSyncBuffer) return;
+    const rm = this.rollbackManager;
+    if (this.state !== GAME_STATE.FIGHTING || !rm) return;
 
-    const targetFrame = this.inputSyncBuffer.addLocalInput(this.captureFrame, rawInput);
-    this.network.sendSyncInput(targetFrame, rawInput);
-    this.captureFrame++;
-  }
+    // Store local input and send to opponent immediately (no delay)
+    rm.addLocalInput(this.frame, rawInput);
+    this.network.sendSyncInput(this.frame, rawInput);
 
-  // Multiplayer: advance simulation for all frames whose inputs are ready
-  private _tryAdvanceSimulation() {
-    if (this.state !== GAME_STATE.FIGHTING || !this.inputSyncBuffer) return;
-
-    const maxCatchup = this.inputSyncBuffer.inputDelay + 6;
-    let steps = 0;
-    while (steps < maxCatchup) {
-      const inputs = this.inputSyncBuffer.getInputsForFrame(this.frame);
-      if (!inputs) break;
-      this._runSimulationStep(inputs[0], inputs[1]);
-      this.frame++;
-      steps++;
-      if (this.frame % 60 === 0) this.inputSyncBuffer.prune(this.frame - 120);
-    }
-
-    // Show/hide connection stall indicator
-    const stalling = this.inputSyncBuffer.currentStall > 15;
+    // Check if we've exhausted the rollback window (opponent too far behind)
+    const stalling = rm.shouldStall(this.frame);
     if (stalling !== this._stallShown) {
       this._stallShown = stalling;
       this.ui.showStallIndicator(stalling);
     }
+    if (stalling) return;
+
+    // Save snapshot, then advance with confirmed or predicted inputs
+    rm.saveSnapshot(this.frame, this._rollbackHost);
+    const inputs = rm.getInputsForFrame(this.frame);
+    if (!inputs) return;
+
+    this._runSimulationStep(inputs[0], inputs[1]);
+    this.frame++;
+
+    if (this.frame % 60 === 0) rm.prune(this.frame - 120);
   }
 
-  // Core simulation step shared by practice and multiplayer
-  private _runSimulationStep(p1Input: InputState, p2Input: InputState) {
+  // RollbackHost adapter — lets RollbackManager drive replay without circular deps
+  get _rollbackHost(): RollbackHost {
+    const game = this;
+    return {
+      get frame() {
+        return game.frame;
+      },
+      setFrame(f: number) {
+        game.frame = f;
+      },
+      snapshotGame() {
+        const f1 = game.fighters[0];
+        const f2 = game.fighters[1];
+        if (!f1 || !f2) throw new Error('Cannot snapshot: fighters not loaded');
+        return {
+          f1: f1.snapshotSim(),
+          f2: f2.snapshotSim(),
+          roundTimer: game.roundTimer,
+          roundTimerAccum: game.roundTimerAccum,
+        };
+      },
+      restoreGame(snap) {
+        game.fighters[0]?.restoreSim(snap.f1);
+        game.fighters[1]?.restoreSim(snap.f2);
+        game.roundTimer = snap.roundTimer;
+        game.roundTimerAccum = snap.roundTimerAccum;
+      },
+      runSimStep(p1: InputState, p2: InputState) {
+        game._runSimulationStep(p1, p2);
+      },
+      setReplaying(v: boolean) {
+        game._isReplaying = v;
+      },
+    };
+  }
+
+  // Core simulation step shared by practice, multiplayer, and rollback replay.
+  // During replay (_isReplaying), visual/audio side effects are suppressed.
+  _runSimulationStep(p1Input: InputState, p2Input: InputState) {
     const f1 = this.fighters[0];
     const f2 = this.fighters[1];
     if (!f1 || !f2) return;
@@ -404,13 +427,11 @@ export class Game {
     f1.processInput(p1Input, f2.position);
     f2.processInput(p2Input, f1.position);
 
-    // In delay-based sync both clients see superJust at the same frame, so
-    // super activation is applied directly on both sides (same as practice).
     for (const fighter of this.fighters) {
       if (!fighter?._pendingSuperActivation || fighter.superPowerActive) continue;
       fighter._pendingSuperActivation = false;
       fighter.applyServerSuperActivation();
-      this.bgm.crossfadeTo('power');
+      if (!this._isReplaying) this.bgm.crossfadeTo('power');
     }
 
     const f1Active = f1.isAttackActive();
@@ -428,17 +449,21 @@ export class Game {
       if (this.roundTimerAccum >= 1.0) {
         this.roundTimerAccum -= 1.0;
         this.roundTimer--;
-        this.ui.updateTimer(this.roundTimer);
-        if (this.roundTimer <= 0) this.onTimeUp();
+        if (!this._isReplaying) this.ui.updateTimer(this.roundTimer);
+        if (this.roundTimer <= 0 && !this._isReplaying) this.onTimeUp();
       }
     }
 
-    if (this.state === GAME_STATE.FIGHTING) {
+    if (this.state === GAME_STATE.FIGHTING && !this._isReplaying) {
       if (f1.health <= 0 || f2.health <= 0) {
         this.onKO(f1.health <= 0 ? 1 : 0);
       }
     }
 
+    if (!this._isReplaying) this._updateHud(f1, f2);
+  }
+
+  private _updateHud(f1: Fighter, f2: Fighter) {
     const local = this.localPlayerIndex === 0 ? f1 : f2;
     const remote = this.localPlayerIndex === 0 ? f2 : f1;
     this.ui.updateHealth(local.health, remote.health, GC.MAX_HEALTH);
@@ -482,17 +507,21 @@ export class Game {
 
     if (result.type === 'hit') {
       defender.onHit(result, attacker.facingAngle);
-      this.ui.showHitEffect();
-      this.fightCamera.shake(0.15, 0.15);
-      this.effects.spawnHitSpark(defender.position, attacker.facingAngle);
-      const sfx = move.damage <= 12 ? 'hit_light' : 'hit_heavy';
-      this.audio.playAt(sfx, defender.position);
+      if (!this._isReplaying) {
+        this.ui.showHitEffect();
+        this.fightCamera.shake(0.15, 0.15);
+        this.effects.spawnHitSpark(defender.position, attacker.facingAngle);
+        const sfx = move.damage <= 12 ? 'hit_light' : 'hit_heavy';
+        this.audio.playAt(sfx, defender.position);
+      }
     } else if (result.type === 'blocked') {
       defender.onHit(result, attacker.facingAngle);
-      this.ui.showBlockEffect();
-      this.fightCamera.shake(0.05, 0.1);
-      this.effects.spawnBlockSpark(defender.position);
-      this.audio.playAt('block', defender.position);
+      if (!this._isReplaying) {
+        this.ui.showBlockEffect();
+        this.fightCamera.shake(0.05, 0.1);
+        this.effects.spawnBlockSpark(defender.position);
+        this.audio.playAt('block', defender.position);
+      }
     }
   }
 
@@ -646,10 +675,9 @@ export class Game {
     this.fightCamera.reset();
 
     // Reset input sync state for the new round
-    if (this.inputSyncBuffer) {
-      this.inputSyncBuffer.reset();
-      this.captureFrame = 0;
-      this.frame = this.inputSyncBuffer.inputDelay;
+    this.frame = 0;
+    if (this.rollbackManager) {
+      this.rollbackManager.reset();
     }
 
     if (this.isPractice) {

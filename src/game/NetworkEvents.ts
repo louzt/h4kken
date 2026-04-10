@@ -83,9 +83,9 @@ export function setupNetworkEvents(game: Game): void {
     game._roundResetting = false;
   });
 
-  // Delay-based sync: feed opponent's frame-tagged input into the buffer
+  // Rollback netcode: feed opponent's frame-tagged input, triggers rollback on misprediction
   game.network.on('opponentSyncInput', (msg) => {
-    game.inputSyncBuffer?.addRemoteInput(msg.targetFrame, msg.input);
+    game.rollbackManager?.receiveRemoteInput(msg.targetFrame, msg.input, game._rollbackHost);
   });
 
   // With delay-based sync both clients detect KO/time-up locally at the same
