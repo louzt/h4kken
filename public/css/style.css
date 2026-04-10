@@ -495,6 +495,96 @@ html, body {
   left: 0;
 }
 
+/* ── Super Meter Bars ──────────────────────────────────────────────────────── */
+
+.super-bars {
+  display: flex;
+  align-items: center;
+  margin-top: 3px;
+}
+
+.super-bar-wrapper {
+  flex: 1;
+  height: 6px;
+}
+
+.super-bar-bg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.45);
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.super-bar-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #0055cc, #00ccff);
+  transition: width 0.08s linear;
+}
+
+.super-bar-fill.super-full {
+  background: linear-gradient(90deg, #00aaff, #ffffff);
+  animation: super-pulse 0.4s ease-in-out infinite;
+}
+
+@keyframes super-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #00ccff; }
+  50%       { opacity: 0.75; box-shadow: 0 0 14px #00ccff; }
+}
+
+.p1-super-bar .super-bar-fill {
+  right: 0;
+  left: auto;
+}
+
+.p2-super-bar .super-bar-fill {
+  left: 0;
+  background: linear-gradient(90deg, #cc2200, #ff6622);
+}
+
+.p2-super-bar .super-bar-fill.super-full {
+  background: linear-gradient(90deg, #ff3300, #ffaa44);
+  animation: super-pulse-p2 0.4s ease-in-out infinite;
+}
+
+@keyframes super-pulse-p2 {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #ff6622; }
+  50%       { opacity: 0.75; box-shadow: 0 0 14px #ff6622; }
+}
+
+.super-spacer {
+  width: 70px;
+  flex-shrink: 0;
+}
+
+/* ── Power Mode HUD highlighting ────────────────────────────────────────────── */
+
+.health-bar-fill.power-active {
+  background: linear-gradient(180deg, #ffdd00, #ff8800) !important;
+  box-shadow: 0 0 8px #ffaa00, 0 0 20px #ff8800;
+  animation: power-health-pulse 0.35s ease-in-out infinite;
+}
+
+@keyframes power-health-pulse {
+  0%, 100% { box-shadow: 0 0 8px #ffaa00, 0 0 20px #ff8800; }
+  50%       { box-shadow: 0 0 16px #ffdd00, 0 0 40px #ff8800; }
+}
+
+.p1-super-bar .super-bar-fill.power-active,
+.p2-super-bar .super-bar-fill.power-active {
+  background: linear-gradient(90deg, #ffaa00, #ffff44) !important;
+  animation: power-super-pulse 0.35s ease-in-out infinite;
+}
+
+@keyframes power-super-pulse {
+  0%, 100% { box-shadow: 0 0 6px #ffaa00; }
+  50%       { box-shadow: 0 0 18px #ffff44; }
+}
+
 .timer-box {
   width: 70px;
   height: 55px;

@@ -43,6 +43,7 @@ interface ClientMessage {
   p1Wins?: number;
   p2Wins?: number;
   matchOver?: boolean;
+  playerIndex?: number;
 }
 
 interface Room {
@@ -52,6 +53,7 @@ interface Room {
   inputs: [unknown, unknown];
   state: 'countdown' | 'fighting' | 'roundEnd' | 'matchEnd';
   countdownTimer: ReturnType<typeof setTimeout> | null;
+  superMeters: [number, number];
 }
 
 const waitingPlayers: PlayerInfo[] = [];
@@ -71,6 +73,7 @@ function createRoom(player1: PlayerInfo, player2: PlayerInfo): Room {
     inputs: [null, null],
     state: 'countdown',
     countdownTimer: null,
+    superMeters: [0, 0],
   };
   rooms.set(roomId, room);
   player1.roomId = roomId;
@@ -179,12 +182,33 @@ function handleGameState(playerInfo: PlayerInfo, msg: ClientMessage) {
   const room = rooms.get(playerInfo.roomId);
   if (!room) return;
 
+  // Cache super meter values from P1's authoritative simulation
+  const state = msg.state as { p1?: { superMeter?: number }; p2?: { superMeter?: number } } | null;
+  if (state?.p1?.superMeter !== undefined) room.superMeters[0] = state.p1.superMeter;
+  if (state?.p2?.superMeter !== undefined) room.superMeters[1] = state.p2.superMeter;
+
   const opponent = room.players[1];
   sendTo(opponent, {
     type: 'gameState',
     state: msg.state,
     frame: msg.frame,
   });
+}
+
+const SUPER_MAX = 1200; // must match GAME_CONSTANTS.SUPER_MAX (600 * PACE_SCALE=2)
+
+function handleSuperActivate(playerInfo: PlayerInfo, msg: ClientMessage) {
+  if (!playerInfo.roomId) return;
+  const room = rooms.get(playerInfo.roomId);
+  if (!room || room.state !== 'fighting') return;
+
+  const idx = msg.playerIndex ?? playerInfo.playerIndex;
+  if (idx === null || idx === undefined) return;
+  const meter = room.superMeters[idx] ?? 0;
+  if (meter < SUPER_MAX) return;
+
+  room.superMeters[idx] = 0;
+  broadcastToRoom(room, { type: 'superActivated', playerIndex: idx });
 }
 
 function handleRoundResult(playerInfo: PlayerInfo, msg: ClientMessage) {
@@ -265,6 +289,9 @@ wss.on('connection', (ws) => {
         break;
       case 'roundResult':
         handleRoundResult(playerInfo, msg);
+        break;
+      case 'superActivate':
+        handleSuperActivate(playerInfo, msg);
         break;
       case 'leave':
         handleLeave(playerInfo);

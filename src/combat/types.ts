@@ -65,6 +65,7 @@ export interface FighterLike {
   currentMove: MoveData | null;
   moveFrame: number;
   comboCount: number;
+  superPowerActive?: boolean;
 }
 
 // Attack level shorthand — private to combat module

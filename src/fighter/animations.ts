@@ -76,6 +76,7 @@ const UAL2_CLIPS = [
   'LiftAir_Hit_L',
   'LiftAir_Hit_R',
   'Melee_Combo',
+  'MonsterTransformation',
   'Melee_Hook',
   'Melee_Hook_Rec',
   'Melee_Knee',
@@ -183,6 +184,8 @@ export const ANIM_CONFIG = {
   introSpellIdle: { glb: 'Spell_Double_Idle_Loop', loop: true, blend: 0.1 },
   introSpellExit: { glb: 'Spell_Double_Exit', blend: 0.1 },
   introFixing: { glb: 'Fixing_Kneeling', blend: 0.2 },
+  // ── Super Power ─────────────────────────────────────────────────────────────
+  superActivate: { glb: 'MonsterTransformation', src: 'ual2', blend: 0.1 },
 } satisfies Record<string, AnimConfig>;
 
 export type AnimKey = keyof typeof ANIM_CONFIG;

@@ -31,6 +31,7 @@ export interface InputState {
   dashRight?: boolean;
   dashForward?: boolean;
   dashBack?: boolean;
+  superJust?: boolean;
 }
 
 export class InputManager {
@@ -101,6 +102,7 @@ export class InputManager {
       rpJust: this.justPressed('KeyI'),
       lkJust: this.justPressed('KeyJ'),
       rkJust: this.justPressed('KeyK'),
+      superJust: this.justPressed('KeyQ'),
     };
   }
 

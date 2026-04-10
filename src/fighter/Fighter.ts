@@ -10,6 +10,10 @@ import {
   type AnimationGroup,
   type Bone,
   Color3,
+  Color4,
+  HighlightLayer,
+  type Mesh,
+  ParticleSystem,
   PBRMaterial,
   Quaternion,
   type Scene,
@@ -69,6 +73,15 @@ export class Fighter {
   runFrames: number;
   landingTimer: number;
   hitFlash: number;
+  superMeter: number;
+  superPowerActive: boolean;
+  private _superActivationLock: boolean;
+  private _superWasActivatedThisRound: boolean;
+  _pendingSuperActivation: boolean;
+  currentAnimKey: string;
+  onSuperDeactivate: (() => void) | null = null;
+  private _highlightLayer: HighlightLayer | null;
+  private _superParticles: ParticleSystem | null;
   private _rootRotY = 0;
   private _introActive = false;
   private _introTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -120,6 +133,15 @@ export class Fighter {
     this.landingTimer = 0;
 
     this.hitFlash = 0;
+
+    this.superMeter = 0;
+    this.superPowerActive = false;
+    this._superActivationLock = false;
+    this._superWasActivatedThisRound = false;
+    this._pendingSuperActivation = false;
+    this.currentAnimKey = '';
+    this._highlightLayer = null;
+    this._superParticles = null;
   }
 
   // FBX loader prefixes every bone as "<meshName>-<boneName>".
@@ -253,6 +275,7 @@ export class Fighter {
     this._rootRotY = initRotY;
     this.rootNode.rotationQuaternion = Fighter._makeRootQuat(initRotY);
 
+    this._initSuperEffects();
     this.playAnimation('combatIdle');
   }
 
@@ -272,6 +295,76 @@ export class Fighter {
       clonedGroup.loopAnimation = (ANIM_CONFIG as Record<string, AnimConfig>)[name]?.loop ?? false;
       this.animGroups[name] = clonedGroup;
     }
+  }
+
+  private _initSuperEffects() {
+    if (!this.rootNode) return;
+
+    const hl = new HighlightLayer(`superHL_${this.playerIndex}`, this.scene);
+    hl.isEnabled = false;
+    hl.innerGlow = false;
+    const hlColor = this.playerIndex === 0 ? new Color3(0.1, 0.6, 1.0) : new Color3(1.0, 0.25, 0.1);
+    for (const mesh of this.meshes) {
+      hl.addMesh(mesh as Mesh, hlColor);
+    }
+    this._highlightLayer = hl;
+
+    const ps = new ParticleSystem(`superPS_${this.playerIndex}`, 60, this.scene);
+    ps.emitter = this.meshes[0] ?? this.position;
+    ps.minEmitBox = new Vector3(-0.3, 0, -0.3);
+    ps.maxEmitBox = new Vector3(0.3, 0.2, 0.3);
+    ps.direction1 = new Vector3(-0.1, 1.0, -0.1);
+    ps.direction2 = new Vector3(0.1, 1.5, 0.1);
+    ps.minLifeTime = 0.3;
+    ps.maxLifeTime = 0.7;
+    ps.minSize = 0.04;
+    ps.maxSize = 0.1;
+    ps.emitRate = 40;
+    ps.blendMode = ParticleSystem.BLENDMODE_ADD;
+    ps.gravity = new Vector3(0, 0.2, 0);
+    if (this.playerIndex === 0) {
+      ps.color1 = new Color4(0.3, 0.7, 1, 1);
+      ps.color2 = new Color4(0.1, 0.4, 1, 0.8);
+      ps.colorDead = new Color4(0, 0.4, 1, 0);
+    } else {
+      ps.color1 = new Color4(1.0, 0.4, 0.1, 1);
+      ps.color2 = new Color4(1.0, 0.2, 0.0, 0.8);
+      ps.colorDead = new Color4(0, 0, 0, 0);
+    }
+    this._superParticles = ps;
+  }
+
+  private _destroySuperEffects() {
+    if (this._highlightLayer) this._highlightLayer.isEnabled = false;
+    this._superParticles?.stop();
+  }
+
+  activateSuperPower() {
+    if (this.superPowerActive || this._pendingSuperActivation || this.superMeter < GC.SUPER_MAX)
+      return;
+    this._pendingSuperActivation = true;
+  }
+
+  applyServerSuperActivation() {
+    if (this.superPowerActive) return;
+    this.superPowerActive = true;
+    this._superActivationLock = true;
+    this._superWasActivatedThisRound = true;
+    this._pendingSuperActivation = false;
+    if (this._highlightLayer) this._highlightLayer.isEnabled = true;
+    this._superParticles?.start();
+    if (this.animGroups.superActivate) {
+      this.playAnimation('superActivate');
+    } else {
+      this._superActivationLock = false;
+    }
+  }
+
+  private _deactivateSuperPower() {
+    this.superPowerActive = false;
+    this._destroySuperEffects();
+    this.onSuperDeactivate?.();
+    this.playAnimation('combatIdle');
   }
 
   playAnimation(name: string, speedOverride?: number, blendOverride?: number) {
@@ -296,6 +389,7 @@ export class Fighter {
     newGroup.speedRatio = speed;
     newGroup.start(newGroup.loopAnimation, speed, from, to);
     this.currentAnimGroup = newGroup;
+    this.currentAnimKey = name;
   }
 
   reset(startX: number) {
@@ -321,6 +415,14 @@ export class Fighter {
     this.runFrames = 0;
     this.landingTimer = 0;
     this.hitFlash = 0;
+    if (this.superPowerActive || this._superWasActivatedThisRound) {
+      this.superMeter = 0;
+    }
+    this.superPowerActive = false;
+    this._superActivationLock = false;
+    this._superWasActivatedThisRound = false;
+    this._pendingSuperActivation = false;
+    this._destroySuperEffects();
     this.facing = 1;
     this.facingAngle = startX > 0 ? Math.PI : 0;
     this._rootRotY = Math.PI / 2 - this.facingAngle;
@@ -343,6 +445,20 @@ export class Fighter {
       this.state !== FIGHTER_STATE.KNOCKDOWN;
     if (canUpdateFacing) {
       this.facingAngle = toOpponentAngle;
+    }
+
+    if (input.superJust && !this.superPowerActive && this.superMeter >= GC.SUPER_MAX) {
+      this.activateSuperPower();
+    }
+    if (this.superPowerActive) {
+      this.superMeter = Math.max(0, this.superMeter - GC.SUPER_DRAIN_RATE);
+      if (this.superMeter <= 0) this._deactivateSuperPower();
+    }
+    if (this._superActivationLock) {
+      const ag = this.animGroups.superActivate;
+      if (ag?.isPlaying) return;
+      this._superActivationLock = false;
+      if (this.superPowerActive) this.playAnimation('combatIdle');
     }
 
     const relInput = this.getRelativeInput(input);
@@ -651,12 +767,18 @@ export class Fighter {
     }
   }
 
-  handleStunState(_input?: InputState) {
+  handleStunState(input?: InputState) {
     this.stunFrames--;
     if (this.stunFrames <= 0) {
-      this.state = FIGHTER_STATE.IDLE;
       this.velocity.x = 0;
-      this.playAnimation('combatIdle');
+      this.state = FIGHTER_STATE.IDLE;
+      if (input?.block) {
+        this.isBlocking = true;
+        this.playAnimation('block');
+      } else {
+        this.isBlocking = false;
+        this.playAnimation('combatIdle');
+      }
     }
     this.velocity.x *= GC.PUSHBACK_DECAY;
   }
@@ -770,7 +892,10 @@ export class Fighter {
     switch (result.type) {
       case 'hit': {
         this.isBlocking = false;
-        this.health = Math.max(0, this.health - result.damage);
+        const dmg = this.superPowerActive
+          ? Math.round(result.damage * GC.SUPER_DAMAGE_IN)
+          : result.damage;
+        this.health = Math.max(0, this.health - dmg);
         this.comboCount = result.comboHits;
         this.comboDamage = (this.comboDamage || 0) + result.damage;
         this.comboTimer = 60;
@@ -823,6 +948,9 @@ export class Fighter {
       }
       case 'blocked': {
         this.health = Math.max(0, this.health - result.chipDamage);
+        if (!this.superPowerActive) {
+          this.superMeter = Math.min(GC.SUPER_MAX, this.superMeter + GC.SUPER_GAIN_BLOCK);
+        }
         this.state = FIGHTER_STATE.BLOCK_STUN;
         this.stunFrames = result.blockstun;
         this.velocity.x = -result.pushback;
@@ -922,6 +1050,12 @@ export class Fighter {
       this.rootNode.position.x -= Math.cos(this.facingAngle) * 0.05;
       this.rootNode.position.z -= Math.sin(this.facingAngle) * 0.05;
     }
+
+    if (this.superPowerActive && this._highlightLayer) {
+      const pulse = 0.5 + 0.3 * Math.sin(Date.now() / 250);
+      this._highlightLayer.blurHorizontalSize = pulse;
+      this._highlightLayer.blurVerticalSize = pulse;
+    }
   }
 
   serializeState() {
@@ -954,6 +1088,9 @@ export class Fighter {
       comboDamage: this.comboDamage,
       stunFrames: this.stunFrames,
       wins: this.wins,
+      superMeter: this.superMeter,
+      superPowerActive: this.superPowerActive,
+      currentAnimKey: this.currentAnimKey,
     };
   }
 
@@ -981,9 +1118,33 @@ export class Fighter {
       this.hasHitThisMove = false;
     }
 
+    if (data.superMeter !== undefined) this.superMeter = data.superMeter;
+
+    if (data.superPowerActive !== undefined && data.superPowerActive !== this.superPowerActive) {
+      this.superPowerActive = data.superPowerActive;
+      if (this.superPowerActive) {
+        if (this._highlightLayer) this._highlightLayer.isEnabled = true;
+        this._superParticles?.start();
+      } else {
+        this._destroySuperEffects();
+        this._superActivationLock = false;
+      }
+    }
+
     if (data.state !== this.state) {
       this.state = data.state;
-      this.updateAnimationForState();
+      // Use the synced animation key if available; fall back to state-driven choice
+      if (data.currentAnimKey && !this._superActivationLock) {
+        this.playAnimation(data.currentAnimKey);
+      } else {
+        this.updateAnimationForState();
+      }
+    } else if (
+      data.currentAnimKey &&
+      data.currentAnimKey !== this.currentAnimKey &&
+      !this._superActivationLock
+    ) {
+      this.playAnimation(data.currentAnimKey);
     }
   }
 

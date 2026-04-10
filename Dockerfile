@@ -1,9 +1,9 @@
 # Build stage
-FROM oven/bun:1 AS build
+FROM oven/bun:1.3.0 AS build
 
 WORKDIR /app
 
-COPY package.json bun.lockb ./
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
@@ -14,11 +14,11 @@ COPY public/ ./public/
 RUN bun run build
 
 # Production stage
-FROM oven/bun:1-alpine
+FROM oven/bun:1.3.0-alpine
 
 WORKDIR /app
 
-COPY package.json bun.lockb ./
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 COPY --from=build /app/dist ./dist

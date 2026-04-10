@@ -45,6 +45,11 @@ interface RoundResultMsg {
   defeatAnim: string;
 }
 
+interface SuperActivatedMsg {
+  type: 'superActivated';
+  playerIndex: number;
+}
+
 interface ErrorMsg {
   type: 'error';
   message: string;
@@ -61,6 +66,7 @@ type ServerMessage =
   | OpponentInputMsg
   | GameStateMsg
   | RoundResultMsg
+  | SuperActivatedMsg
   | ErrorMsg;
 
 // Serialized fighter state used for network sync
@@ -84,6 +90,9 @@ export interface FighterStateSync {
   comboDamage: number;
   stunFrames: number;
   wins: number;
+  superMeter: number;
+  superPowerActive: boolean;
+  currentAnimKey: string;
 }
 
 // ── Outbound messages (client → server) ─────────────────────
@@ -106,7 +115,15 @@ type RoundResultOutMsg = {
 };
 type LeaveMsg = { type: 'leave' };
 
-type ClientMessage = JoinMsg | InputMsg | GameStateOutMsg | RoundResultOutMsg | LeaveMsg;
+type SuperActivateMsg = { type: 'superActivate'; playerIndex: number };
+
+type ClientMessage =
+  | JoinMsg
+  | InputMsg
+  | GameStateOutMsg
+  | RoundResultOutMsg
+  | SuperActivateMsg
+  | LeaveMsg;
 
 // ── Event handler map ────────────────────────────────────────
 
@@ -120,6 +137,7 @@ type HandlerMap = {
   opponentInput: (msg: OpponentInputMsg) => void;
   gameState: (msg: GameStateMsg) => void;
   roundResult: (msg: RoundResultMsg) => void;
+  superActivated: (msg: SuperActivatedMsg) => void;
   error: (msg: ErrorMsg) => void;
 };
 
@@ -213,6 +231,9 @@ export class Network {
       case 'roundResult':
         this.emit('roundResult', msg);
         break;
+      case 'superActivated':
+        this.emit('superActivated', msg);
+        break;
       case 'opponentLeft':
         this.emit('opponentLeft');
         break;
@@ -238,6 +259,10 @@ export class Network {
 
   sendGameState(frame: number, state: GameStateOutMsg['state']) {
     this.send({ type: 'gameState', frame, state });
+  }
+
+  sendSuperActivate(playerIndex: number) {
+    this.send({ type: 'superActivate', playerIndex });
   }
 
   sendRoundResult(

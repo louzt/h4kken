@@ -160,7 +160,10 @@ export namespace CombatSystem {
     }
 
     const comboHits = (defender.comboCount || 0) + 1;
-    const damage = calculateDamage(move.damage, comboHits);
+    let damage = calculateDamage(move.damage, comboHits);
+    if (attacker.superPowerActive) {
+      damage = Math.round(damage * GAME_CONSTANTS.SUPER_DAMAGE_OUT);
+    }
 
     return {
       type: 'hit',

@@ -9,6 +9,7 @@
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "bun dist/server.js",
     "fix": "bunx biome check --write . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "ci": "bunx biome ci . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
     "prepare": "husky"
   },

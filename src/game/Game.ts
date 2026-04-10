@@ -169,11 +169,6 @@ export class Game {
 
     this.setupUIEvents();
     this.setupNetworkEvents();
-
-    // TODO delete — B key toggles BGM crossfade for testing
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyB') this.bgm.toggleForTest();
-    });
   }
 
   emptyInput(): InputState {
@@ -199,6 +194,7 @@ export class Game {
       dashRight: false,
       sideStepUp: false,
       sideStepDown: false,
+      superJust: false,
     };
   }
 
@@ -295,6 +291,12 @@ export class Game {
       }
     });
 
+    this.network.on('superActivated', (msg) => {
+      const fighter = this.fighters[msg.playerIndex];
+      fighter?.applyServerSuperActivation();
+      this.bgm.crossfadeTo('power');
+    });
+
     this.network.on('gameState', (msg) => {
       if (this.localPlayerIndex === 1 && msg.state) {
         const { p1, p2 } = msg.state;
@@ -374,6 +376,14 @@ export class Game {
 
     this.fighters[1] = new Fighter(1, this.scene);
     this.fighters[1].init(this.sharedAssets);
+
+    const onDeactivate = () => {
+      if (!this.fighters[0]?.superPowerActive && !this.fighters[1]?.superPowerActive) {
+        this.bgm.crossfadeTo('main');
+      }
+    };
+    this.fighters[0].onSuperDeactivate = onDeactivate;
+    this.fighters[1].onSuperDeactivate = onDeactivate;
 
     // Register fighter meshes as shadow casters so they cast onto the arena floor
     const shadowGen = this.stage?.shadowGenerator;
@@ -515,6 +525,8 @@ export class Game {
     f1.processInput(p1Input, f2.position);
     f2.processInput(p2Input, f1.position);
 
+    this._flushPendingSuperActivations();
+
     const f1Active = f1.isAttackActive();
     const f2Active = f2.isAttackActive();
     if (f1Active) this.resolveCombat(f1, f2);
@@ -547,6 +559,8 @@ export class Game {
     const local = this.localPlayerIndex === 0 ? f1 : f2;
     const remote = this.localPlayerIndex === 0 ? f2 : f1;
     this.ui.updateHealth(local.health, remote.health, GC.MAX_HEALTH);
+    this.ui.updateSuper(local.superMeter, remote.superMeter, GC.SUPER_MAX);
+    this.ui.setPowerMode(local.superPowerActive, remote.superPowerActive);
 
     if (remote.comboCount >= 2 && remote.comboTimer > 0) {
       this.ui.updateCombo(0, remote.comboCount, remote.comboDamage);
@@ -566,6 +580,19 @@ export class Game {
         timer: this.roundTimer,
         round: this.round,
       });
+    }
+  }
+
+  private _flushPendingSuperActivations() {
+    for (const fighter of this.fighters) {
+      if (!fighter?._pendingSuperActivation || fighter.superPowerActive) continue;
+      fighter._pendingSuperActivation = false;
+      if (this.isPractice) {
+        fighter.applyServerSuperActivation();
+        this.bgm.crossfadeTo('power');
+      } else {
+        this.network.sendSuperActivate(fighter.playerIndex);
+      }
     }
   }
 
@@ -692,6 +719,7 @@ export class Game {
       dashRight: input.dashRight,
       sideStepUp: input.sideStepUp,
       sideStepDown: input.sideStepDown,
+      superJust: input.superJust,
     };
   }
 
@@ -825,6 +853,9 @@ export class Game {
     this.roundTimerAccum = 0;
     this.ui.updateTimer(this.roundTimer);
     this.ui.updateHealth(GC.MAX_HEALTH, GC.MAX_HEALTH, GC.MAX_HEALTH);
+    this.ui.updateSuper(0, 0, GC.SUPER_MAX);
+    this.ui.setPowerMode(false, false);
+    this.bgm.crossfadeTo('main');
     this.fightCamera.reset();
 
     if (this.isPractice) {

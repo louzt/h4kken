@@ -127,5 +127,6 @@ function emptyInput(): InputState {
     dashRight: false,
     sideStepUp: false,
     sideStepDown: false,
+    superJust: false,
   };
 }
