@@ -38,16 +38,29 @@ export function setupNetworkEvents(game: Game): void {
   game.network.on('countdown', (msg) => {
     if (game.state !== GAME_STATE.ROUND_END && game.state !== GAME_STATE.COUNTDOWN) return;
     if (msg.count === 3) {
-      game.startNextRound();
-      if (game.round === 1) game._startIntroAnimations();
-      const roundSfx =
-        game.round === 1
-          ? 'announce_round1'
-          : game.round === 2
-            ? 'announce_round2'
-            : 'announce_finalround';
-      game.ui.showAnnouncement(`ROUND ${game.round}`, '', 900);
-      game.audio.play(roundSfx, 0.63);
+      // Cancel the client-side fallback timeout — server countdown is authoritative.
+      // Without this, the timeout set in onKO() / roundResult fires ~3s later
+      // after _roundResetting has been cleared by the 'fight' event, triggering
+      // a spurious startNextRound() that resets fighters mid-round.
+      if (game._nextRoundTimeout !== null) {
+        clearTimeout(game._nextRoundTimeout);
+        game._nextRoundTimeout = null;
+      }
+      // Guard against duplicate count=3 messages (reconnect, WS retransmit).
+      // startNextRound() has its own _roundResetting guard but the announcement
+      // code below would still fire even if startNextRound() returned early.
+      if (!game._roundResetting) {
+        game.startNextRound();
+        if (game.round === 1) game._startIntroAnimations();
+        const roundSfx =
+          game.round === 1
+            ? 'announce_round1'
+            : game.round === 2
+              ? 'announce_round2'
+              : 'announce_finalround';
+        game.ui.showAnnouncement(`ROUND ${game.round}`, '', 900);
+        game.audio.play(roundSfx, 0.63);
+      }
     } else if (msg.count === 2) {
       game.ui.showAnnouncement('3', '', 900, 'countdown');
       game.audio.play('count_3', 0.63);
