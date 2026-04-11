@@ -21,6 +21,36 @@ export interface RollbackHost {
 // 20 frames ≈ 333ms at 60fps — enough headroom for typical internet jitter
 const MAX_ROLLBACK = 20;
 
+export interface RollbackDiag {
+  // Filled by RollbackManager
+  rollbacks: number;
+  rollbackDepthSum: number;
+  mispredictions: number;
+  predictionsTotal: number;
+  inputLagFramesSum: number; // sum of (localFrame - remoteFrame) at arrival time
+  inputLagCount: number;
+  // Filled by Game
+  stallFrames: number;
+  framesAdvanced: number;
+  simStepMs: number;
+  simStepCount: number;
+}
+
+export function makeDiag(): RollbackDiag {
+  return {
+    rollbacks: 0,
+    rollbackDepthSum: 0,
+    mispredictions: 0,
+    predictionsTotal: 0,
+    inputLagFramesSum: 0,
+    inputLagCount: 0,
+    stallFrames: 0,
+    framesAdvanced: 0,
+    simStepMs: 0,
+    simStepCount: 0,
+  };
+}
+
 export class RollbackManager {
   private localIndex: 0 | 1;
 
@@ -38,6 +68,8 @@ export class RollbackManager {
   lastConfirmedRemoteFrame = -1;
   // Track how many consecutive frames we've been stalling (for UI hysteresis)
   stallFrameCount = 0;
+
+  diag: RollbackDiag = makeDiag();
 
   constructor(localPlayerIndex: 0 | 1) {
     this.localIndex = localPlayerIndex;
@@ -60,10 +92,19 @@ export class RollbackManager {
       this.lastConfirmedRemoteFrame = frame;
     }
 
+    // How many frames late did this input arrive? (positive = we're ahead of remote)
+    const lag = host.frame - frame;
+    if (lag >= 0) {
+      this.diag.inputLagFramesSum += lag;
+      this.diag.inputLagCount++;
+    }
+
     // Check if we predicted this frame and got it wrong
     const predicted = this.predictedInputs.get(frame);
     if (predicted && frame < host.frame) {
+      this.diag.predictionsTotal++;
       if (!inputsEqual(predicted, input)) {
+        this.diag.mispredictions++;
         this.performRollback(frame, host);
       }
       this.predictedInputs.delete(frame);
@@ -101,6 +142,9 @@ export class RollbackManager {
     if (!snap) return;
 
     const currentFrame = host.frame;
+    const depth = currentFrame - toFrame;
+    this.diag.rollbacks++;
+    this.diag.rollbackDepthSum += depth;
 
     // 1. Restore state to the mispredicted frame
     host.restoreGame(snap);

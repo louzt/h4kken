@@ -25,7 +25,7 @@ import { BotAI } from './BotAI';
 import { EffectsManager } from './EffectsManager';
 import { setupNetworkEvents } from './NetworkEvents';
 import type { RollbackHost } from './RollbackManager';
-import { RollbackManager } from './RollbackManager';
+import { makeDiag, type RollbackDiag, RollbackManager } from './RollbackManager';
 
 const GC = GAME_CONSTANTS;
 
@@ -66,6 +66,11 @@ export class Game {
   rollbackManager: RollbackManager | null;
   private _stallShown = false;
   _isReplaying = false;
+  // Diagnostics: accumulated per 5-second window then printed and reset
+  private _diag: RollbackDiag = makeDiag();
+  private _diagWindowStart = 0;
+  private _diagRenderFrames = 0;
+  private static readonly DIAG_INTERVAL_FRAMES = 300; // ~5s at 60fps
   audio: AudioManager;
   bgm: BgmManager;
   onResize: () => void;
@@ -244,6 +249,9 @@ export class Game {
     } else {
       this.rollbackManager = null;
     }
+    this._diag = makeDiag();
+    this._diagWindowStart = performance.now();
+    this._diagRenderFrames = 0;
     this.state = GAME_STATE.COUNTDOWN;
   }
 
@@ -324,6 +332,9 @@ export class Game {
   private _gameLoop() {
     const deltaTime = Math.min(this.engine.getDeltaTime() / 1000, 0.05);
     this.accumulator += deltaTime;
+    if (this.rollbackManager && this.state === GAME_STATE.FIGHTING) {
+      this._diagRenderFrames++;
+    }
 
     while (this.accumulator >= this.tickDuration) {
       this.accumulator -= this.tickDuration;
@@ -373,17 +384,58 @@ export class Game {
       this._stallShown = showStall;
       this.ui.showStallIndicator(showStall);
     }
-    if (stalling) return;
+    if (stalling) {
+      this._diag.stallFrames++;
+      return;
+    }
 
     // Save snapshot, then advance with confirmed or predicted inputs
     rm.saveSnapshot(this.frame, this._rollbackHost);
     const inputs = rm.getInputsForFrame(this.frame);
     if (!inputs) return;
 
+    const t0 = performance.now();
     this._runSimulationStep(inputs[0], inputs[1]);
+    this._diag.simStepMs += performance.now() - t0;
+    this._diag.simStepCount++;
+    this._diag.framesAdvanced++;
     this.frame++;
 
     if (this.frame % 60 === 0) rm.prune(this.frame - 120);
+
+    // Merge rollback manager diag into our window accumulator, then report every 5s
+    if (this.frame % Game.DIAG_INTERVAL_FRAMES === 0) {
+      this._flushDiag(rm);
+    }
+  }
+
+  private _flushDiag(rm: RollbackManager) {
+    const d = this._diag;
+    const rd = rm.diag;
+    const windowMs = performance.now() - this._diagWindowStart;
+    const fps = this._diagRenderFrames / (windowMs / 1000);
+
+    const avgLag =
+      rd.inputLagCount > 0 ? (rd.inputLagFramesSum / rd.inputLagCount).toFixed(1) : '–';
+    const avgDepth = rd.rollbacks > 0 ? (rd.rollbackDepthSum / rd.rollbacks).toFixed(1) : '0';
+    const mispredPct =
+      rd.predictionsTotal > 0 ? Math.round((rd.mispredictions / rd.predictionsTotal) * 100) : 0;
+    const avgSim = d.simStepCount > 0 ? (d.simStepMs / d.simStepCount).toFixed(2) : '–';
+
+    console.log(
+      `[NET] fps=${fps.toFixed(0)} rtt=${this.network.rtt}ms` +
+        ` | remoteLag=${avgLag}f avg` +
+        ` | stalls=${d.stallFrames}f` +
+        ` | rollbacks=${rd.rollbacks} depth=${avgDepth}f` +
+        ` | mispred=${mispredPct}%/${rd.predictionsTotal}` +
+        ` | simStep=${avgSim}ms`,
+    );
+
+    // Reset window
+    this._diag = makeDiag();
+    rm.diag = makeDiag();
+    this._diagWindowStart = performance.now();
+    this._diagRenderFrames = 0;
   }
 
   // RollbackHost adapter — lets RollbackManager drive replay without circular deps
