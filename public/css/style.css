@@ -35,6 +35,9 @@ html, body {
   font-family: var(--font-body);
   touch-action: none;
   overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 #game-canvas {
@@ -859,7 +862,8 @@ html, body {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  padding: 0 20px 28px;
+  /* safe-area-inset-bottom keeps controls above the iOS home bar */
+  padding: 0 20px max(28px, env(safe-area-inset-bottom, 0px));
 }
 
 #mobile-controls.hidden { display: none; }
@@ -887,6 +891,8 @@ html, body {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   touch-action: none;
   display: flex;
   align-items: center;
@@ -921,6 +927,8 @@ html, body {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   touch-action: none;
   display: flex;
   align-items: center;
@@ -954,15 +962,44 @@ html, body {
   background: rgba(255, 200, 0, 0.32);
 }
 
+/* Portrait mobile — compact HUD and bigger touch targets */
+@media screen and (max-width: 768px) {
+  .health-bar-section { padding: 5px 10px 3px; }
+  .health-bar-wrapper { height: 18px; }
+  .player-info { margin-bottom: 2px; }
+  .player-name { font-size: 0.68rem; }
+  .super-bars { margin-top: 2px; }
+  .win-dot { width: 9px; height: 9px; }
+  .super-key-hint { display: none; }
+  .timer-box { width: 46px; height: 36px; }
+  .timer-box span { font-size: 1.2rem; }
+
+  /* Bigger d-pad buttons — more area per thumb */
+  #dpad {
+    grid-template-columns: repeat(3, 62px);
+    grid-template-rows: repeat(3, 62px);
+    gap: 5px;
+  }
+
+  /* Wider action buttons so LP+RP combo fits two thumbs side by side */
+  #action-btns {
+    grid-template-columns: repeat(2, 74px);
+    grid-template-rows: repeat(3, 62px);
+    gap: 8px;
+  }
+}
+
 /* HUD + menu scale-down for small landscape screens (mobile landscape) */
 @media screen and (max-height: 500px) and (orientation: landscape) {
   /* HUD */
-  .health-bar-bg { height: 16px; }
-  .super-bar-bg  { height: 8px; }
-  #fight-timer   { font-size: 1.1rem; }
-  .player-name   { font-size: 0.6rem; }
+  .health-bar-section { padding: 4px 8px 2px; }
+  .health-bar-wrapper { height: 14px; }
+  .super-bar-bg  { height: 6px; }
+  .timer-box { width: 40px; height: 30px; }
+  .timer-box span { font-size: 1rem; }
+  .player-name   { font-size: 0.58rem; }
   .super-key-hint { display: none; }
-  .win-dot { width: 10px; height: 10px; }
+  .win-dot { width: 8px; height: 8px; }
 
   /* Menu — compress to fit ~390px viewport height */
   .game-title { font-size: 2rem; margin-bottom: 0.15rem; }
