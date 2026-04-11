@@ -52,6 +52,7 @@ export function setupNetworkEvents(game: Game): void {
     game.ui.setPlayerNames(myName, msg.opponentName);
     game.ui.hideAllScreens();
     game.ui.showFightHud();
+    game._mobileControls?.show();
     game.prepareMatch();
   });
 
@@ -138,6 +139,7 @@ export function setupNetworkEvents(game: Game): void {
       game.ui.showScreen('menu-screen');
       game.ui.hideFightHud();
       game.ui.hideAnnouncement();
+      game._mobileControls?.hide();
     }, 3000);
   });
 
@@ -149,6 +151,7 @@ export function setupNetworkEvents(game: Game): void {
         game.state = GAME_STATE.MENU;
         game.ui.showScreen('menu-screen');
         game.ui.hideFightHud();
+        game._mobileControls?.hide();
       }, 3000);
     }
   });

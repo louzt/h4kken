@@ -130,6 +130,10 @@ export class InputManager {
     return !!this.keys[code] && !this.previousKeys[code];
   }
 
+  setKey(code: string, down: boolean) {
+    this.keys[code] = down;
+  }
+
   update(): InputState {
     const input: InputState = this.getInput();
     this.frameCount++;

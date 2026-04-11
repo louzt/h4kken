@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>H4KKEN</title>
   <link rel="stylesheet" href="/css/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -91,6 +91,12 @@
     </div>
   </div>
 
+  <!-- Rotate prompt: shown via CSS when device is in portrait -->
+  <div id="rotate-prompt">
+    <div class="rotate-icon">⟳</div>
+    <p>Rotate your device to play</p>
+  </div>
+
   <!-- Fight HUD -->
   <div id="fight-hud" class="hud hidden">
     <!-- Health Bars -->
@@ -155,6 +161,24 @@
   <div id="announcement" class="announcement hidden">
     <div class="announce-text" id="announce-text"></div>
     <div class="announce-sub" id="announce-sub"></div>
+  </div>
+
+  <!-- Mobile touch controls — shown only during fights on touch devices -->
+  <div id="mobile-controls" class="hidden">
+    <div id="dpad">
+      <button class="dpad-btn" id="mb-up"    data-key="KeyW">▲</button>
+      <button class="dpad-btn" id="mb-left"  data-key="KeyA">◀</button>
+      <button class="dpad-btn" id="mb-down"  data-key="KeyS">▼</button>
+      <button class="dpad-btn" id="mb-right" data-key="KeyD">▶</button>
+    </div>
+    <div id="action-btns">
+      <button class="action-btn lp-btn"    data-key="KeyU">LP</button>
+      <button class="action-btn rp-btn"    data-key="KeyI">RP</button>
+      <button class="action-btn lk-btn"    data-key="KeyJ">LK</button>
+      <button class="action-btn rk-btn"    data-key="KeyK">RK</button>
+      <button class="action-btn block-btn" data-key="Space">BLK</button>
+      <button class="action-btn super-btn" data-key="KeyQ">PWR</button>
+    </div>
   </div>
 
   <!-- Game Canvas -->

@@ -20,6 +20,7 @@ import { CombatSystem } from '../combat/CombatSystem';
 import { GAME_CONSTANTS } from '../constants';
 import { Fighter, type SharedAssets } from '../fighter/Fighter';
 import { InputManager, type InputState } from '../Input';
+import { isTouchDevice, MobileControls, requestLandscapeFullscreen } from '../MobileControls';
 import { Network } from '../Network';
 import { Stage } from '../Stage';
 import { UI } from '../UI';
@@ -79,6 +80,7 @@ export class Game {
   _roundResetting: boolean;
   _nextRoundTimeout: ReturnType<typeof setTimeout> | null;
   _lastAnnouncedRound: number;
+  _mobileControls: MobileControls | null = null;
   private botAI = new BotAI();
 
   static async create(): Promise<Game> {
@@ -89,12 +91,21 @@ export class Game {
   }
 
   private static async _makeEngine(canvas: HTMLCanvasElement): Promise<AbstractEngine> {
+    const mobile = isTouchDevice();
+    const antialias = !mobile;
+    const options = { antialias, audioEngine: true };
+    // Cap pixel ratio on mobile — retina scaling at full res tanks framerate
+    const scalingLevel = mobile ? 1 / Math.min(window.devicePixelRatio, 1.5) : 1;
+
     if (await WebGPUEngine.IsSupportedAsync) {
-      const gpu = new WebGPUEngine(canvas, { antialias: true, audioEngine: true });
+      const gpu = new WebGPUEngine(canvas, options);
       await gpu.initAsync();
+      if (scalingLevel !== 1) gpu.setHardwareScalingLevel(scalingLevel);
       return gpu;
     }
-    return new Engine(canvas, true, { antialias: true, audioEngine: true });
+    const eng = new Engine(canvas, antialias, options);
+    if (scalingLevel !== 1) eng.setHardwareScalingLevel(scalingLevel);
+    return eng;
   }
 
   private constructor(canvasEl: HTMLCanvasElement, engine: AbstractEngine) {
@@ -158,14 +169,28 @@ export class Game {
 
     this.onResize = this._onResize.bind(this);
     window.addEventListener('resize', this.onResize);
+    window.addEventListener('orientationchange', () => {
+      // Brief delay — OS needs a moment to finish rotating before we can measure
+      setTimeout(() => this.engine.resize(), 200);
+    });
+
+    if (isTouchDevice()) {
+      this._mobileControls = new MobileControls(this.input);
+    }
 
     this.setupUIEvents();
     setupNetworkEvents(this);
   }
 
   setupUIEvents() {
-    this.ui.btnFindMatch?.addEventListener('click', () => this.findMatch());
-    this.ui.btnPractice?.addEventListener('click', () => this.startPractice());
+    this.ui.btnFindMatch?.addEventListener('click', () => {
+      if (isTouchDevice()) requestLandscapeFullscreen();
+      this.findMatch();
+    });
+    this.ui.btnPractice?.addEventListener('click', () => {
+      if (isTouchDevice()) requestLandscapeFullscreen();
+      this.startPractice();
+    });
     this.ui.btnControls?.addEventListener('click', () => this.ui.showScreen('controls-screen'));
     this.ui.btnBackControls?.addEventListener('click', () => this.ui.showScreen('menu-screen'));
     this.ui.btnCancelSearch?.addEventListener('click', () => this.cancelSearch());
@@ -296,6 +321,7 @@ export class Game {
     this.ui.setPlayerNames(name, 'CPU');
     this.ui.hideAllScreens();
     this.ui.showFightHud();
+    this._mobileControls?.show();
     this.prepareMatch();
     this.round = 1;
     this.startPracticeCountdown();
@@ -739,6 +765,7 @@ export class Game {
       this.ui.hideAnnouncement();
       this.ui.hideFightHud();
       this.ui.showScreen('menu-screen');
+      this._mobileControls?.hide();
       this.state = GAME_STATE.MENU;
       this.isPractice = false;
       this.fightCamera.reset();
