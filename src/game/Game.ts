@@ -217,7 +217,8 @@ export class Game {
     });
 
     await this.audio.load(this.scene);
-    await this.bgm.load(this.scene);
+    // Not awaited — MP3 decoding is slow on mobile; menu shows while tracks load.
+    this.bgm.load(this.scene);
 
     this.createFighters();
 

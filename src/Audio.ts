@@ -28,6 +28,9 @@ export class BgmManager {
   private _power: Sound | null = null;
   private _active: 'main' | 'power' = 'main';
   private _playing = false;
+  // play() may be called before the tracks finish decoding on slow mobile devices.
+  // If so, we queue the intent and honour it as soon as load() completes.
+  private _playPending = false;
 
   async load(scene: Scene): Promise<void> {
     await Promise.all([
@@ -44,10 +47,19 @@ export class BgmManager {
         );
       }),
     ]);
+    if (this._playPending) {
+      this._playPending = false;
+      this.play();
+    }
   }
 
   play() {
     if (this._playing) return;
+    // Tracks still decoding — remember intent, load() will call us back
+    if (!this._main || !this._power) {
+      this._playPending = true;
+      return;
+    }
     this._playing = true;
     this._active = 'main';
     // Volumes set before play() so the gain node is correct from the first sample
@@ -59,6 +71,7 @@ export class BgmManager {
   }
 
   stop() {
+    this._playPending = false;
     if (!this._playing) return;
     this._playing = false;
     this._active = 'main'; // next play() always restarts on main

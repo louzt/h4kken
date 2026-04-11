@@ -962,7 +962,7 @@ html, body {
   background: rgba(255, 200, 0, 0.32);
 }
 
-/* Portrait mobile — compact HUD and bigger touch targets */
+/* Portrait mobile — compact HUD, compact controls */
 @media screen and (max-width: 768px) {
   .health-bar-section { padding: 5px 10px 3px; }
   .health-bar-wrapper { height: 18px; }
@@ -974,22 +974,28 @@ html, body {
   .timer-box { width: 46px; height: 36px; }
   .timer-box span { font-size: 1.2rem; }
 
-  /* Bigger d-pad buttons — more area per thumb */
+  /* Controls sit closer to the edge */
+  #mobile-controls { padding: 0 12px max(16px, env(safe-area-inset-bottom, 0px)); }
+
+  /* 48 px = above Apple/Google 44 pt minimum, well below the original 56 px.
+     Fighting game players navigate by thumb memory, not by button size. */
   #dpad {
-    grid-template-columns: repeat(3, 62px);
-    grid-template-rows: repeat(3, 62px);
-    gap: 5px;
+    grid-template-columns: repeat(3, 48px);
+    grid-template-rows: repeat(3, 48px);
+    gap: 4px;
   }
 
-  /* Wider action buttons so LP+RP combo fits two thumbs side by side */
   #action-btns {
-    grid-template-columns: repeat(2, 74px);
-    grid-template-rows: repeat(3, 62px);
-    gap: 8px;
+    grid-template-columns: repeat(2, 54px);
+    grid-template-rows: repeat(3, 48px);
+    gap: 6px;
   }
+
+  .action-btn { font-size: 0.55rem; border-radius: 8px; }
+  .dpad-btn   { font-size: 1.1rem;  border-radius: 8px; }
 }
 
-/* HUD + menu scale-down for small landscape screens (mobile landscape) */
+/* Landscape mobile — even tighter, controls can't eat vertical space */
 @media screen and (max-height: 500px) and (orientation: landscape) {
   /* HUD */
   .health-bar-section { padding: 4px 8px 2px; }
@@ -1000,6 +1006,21 @@ html, body {
   .player-name   { font-size: 0.58rem; }
   .super-key-hint { display: none; }
   .win-dot { width: 8px; height: 8px; }
+
+  /* Controls */
+  #mobile-controls { padding: 0 10px max(10px, env(safe-area-inset-bottom, 0px)); }
+  #dpad {
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(3, 44px);
+    gap: 3px;
+  }
+  #action-btns {
+    grid-template-columns: repeat(2, 50px);
+    grid-template-rows: repeat(3, 44px);
+    gap: 5px;
+  }
+  .action-btn { font-size: 0.5rem; border-radius: 7px; }
+  .dpad-btn   { font-size: 1rem;   border-radius: 7px; }
 
   /* Menu — compress to fit ~390px viewport height */
   .game-title { font-size: 2rem; margin-bottom: 0.15rem; }
