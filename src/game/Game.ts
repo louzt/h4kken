@@ -9,8 +9,14 @@ import {
   DefaultRenderingPipeline,
   Engine,
   FreeCamera,
+  HardwareScalingOptimization,
   ImageProcessingConfiguration,
+  ParticlesOptimization,
+  PostProcessesOptimization,
   Scene,
+  SceneOptimizer,
+  SceneOptimizerOptions,
+  ShadowsOptimization,
   Vector3,
   WebGPUEngine,
 } from '@babylonjs/core';
@@ -81,6 +87,7 @@ export class Game {
   _nextRoundTimeout: ReturnType<typeof setTimeout> | null;
   _lastAnnouncedRound: number;
   _mobileControls: MobileControls | null = null;
+  private _pipeline: DefaultRenderingPipeline | null = null;
   private botAI = new BotAI();
 
   static async create(): Promise<Game> {
@@ -94,10 +101,14 @@ export class Game {
     const mobile = isTouchDevice();
     const antialias = !mobile;
     const options = { antialias, audioEngine: true };
-    // Cap pixel ratio on mobile — retina scaling at full res tanks framerate
-    const scalingLevel = mobile ? 1 / Math.min(window.devicePixelRatio, 1.5) : 1;
+    // scalingLevel > 1 reduces rendered pixels (faster); < 1 would supersample (slower).
+    // On mobile, render at CSS pixel size regardless of device pixel ratio — the browser
+    // upscales from there. dpr/2 gives a mild downscale on high-dpi devices (dpr=3 → 1.5).
+    const scalingLevel = mobile ? Math.max(1, window.devicePixelRatio / 2) : 1;
 
-    if (await WebGPUEngine.IsSupportedAsync) {
+    // Skip WebGPU on iOS — Safari claims support but Babylon.js WebGPU has known issues there.
+    const isIOS = /iP(hone|ad|od)/i.test(navigator.userAgent);
+    if (!isIOS && (await WebGPUEngine.IsSupportedAsync)) {
       const gpu = new WebGPUEngine(canvas, options);
       await gpu.initAsync();
       if (scalingLevel !== 1) gpu.setHardwareScalingLevel(scalingLevel);
@@ -123,13 +134,13 @@ export class Game {
     this.camera.maxZ = 100;
     this.camera.fov = 0.785; // ~45 degrees in radians
 
-    // Bloom via DefaultRenderingPipeline
-    const pipeline = new DefaultRenderingPipeline('pipeline', true, this.scene, [this.camera]);
-    pipeline.bloomEnabled = true;
-    pipeline.bloomThreshold = 0.82;
-    pipeline.bloomWeight = 0.35;
-    pipeline.bloomKernel = 64;
-    pipeline.bloomScale = 0.5;
+    // Bloom via DefaultRenderingPipeline — stored so SceneOptimizer can disable it
+    this._pipeline = new DefaultRenderingPipeline('pipeline', true, this.scene, [this.camera]);
+    this._pipeline.bloomEnabled = true;
+    this._pipeline.bloomThreshold = 0.82;
+    this._pipeline.bloomWeight = 0.35;
+    this._pipeline.bloomKernel = 64;
+    this._pipeline.bloomScale = 0.5;
 
     // ACES tone mapping + slight contrast boost — kills the washed-out plastic look
     const imgProc = this.scene.imageProcessingConfiguration;
@@ -222,6 +233,7 @@ export class Game {
     setTimeout(() => {
       this.state = GAME_STATE.MENU;
       this.ui.showScreen('menu-screen');
+      this._startQualityMonitor();
     }, 500);
 
     // Render loop (rAF-based) — pauses when the tab is hidden, which is fine.
@@ -242,13 +254,8 @@ export class Game {
     this.fighters[1] = new Fighter(1, this.scene);
     this.fighters[1].init(this.sharedAssets);
 
-    const onDeactivate = () => {
-      if (!this.fighters[0]?.superPowerActive && !this.fighters[1]?.superPowerActive) {
-        this.bgm.crossfadeTo('main');
-      }
-    };
-    this.fighters[0].onSuperDeactivate = onDeactivate;
-    this.fighters[1].onSuperDeactivate = onDeactivate;
+    // BGM is now driven by polling in _updateHud rather than events,
+    // so onSuperDeactivate is not needed for BGM purposes.
 
     // Register fighter meshes as shadow casters so they cast onto the arena floor
     const shadowGen = this.stage?.shadowGenerator;
@@ -420,6 +427,14 @@ export class Game {
     rm.addLocalInput(this.frame, rawInput);
     if (isNewFrame) this.network.sendSyncInput(this.frame, rawInput);
 
+    // ── Soft frame advantage (GGPO-style) ──
+    // Skip one tick when local is >9f ahead of last confirmed remote input.
+    // Caps remoteLag at 9f (150ms) so the 30f hard stall almost never fires.
+    // Guard: skip if no remote input received yet (lastConfirmedRemoteFrame = -1).
+    if (rm.lastConfirmedRemoteFrame >= 0 && this.frame - rm.lastConfirmedRemoteFrame > 9) {
+      return;
+    }
+
     // Check if we've exhausted the rollback window (opponent too far behind).
     // Show SYNCING only after stalling for >12 consecutive frames (~200ms) to
     // avoid visual flicker from brief network jitter.
@@ -486,6 +501,21 @@ export class Game {
     this._diagRenderFrames = 0;
   }
 
+  // Start Babylon.js SceneOptimizer — progressively degrades visual quality
+  // until FPS target is met. Called once after asset load. Custom options skip
+  // MergeMeshesOptimization (would break animated fighter skeletons).
+  private _startQualityMonitor(): void {
+    const options = new SceneOptimizerOptions(45, 2000); // target 45fps, check every 2s
+    // Priority 0: highest GPU impact, lowest gameplay impact — disable first
+    options.optimizations.push(new PostProcessesOptimization(0)); // bloom off
+    options.optimizations.push(new ShadowsOptimization(0)); // scene.shadowsEnabled = false
+    // Priority 1: particle effects (only during super moves)
+    options.optimizations.push(new ParticlesOptimization(1));
+    // Priority 2: last resort — render at lower resolution (max 2x scaling = 50% res)
+    options.optimizations.push(new HardwareScalingOptimization(2, 2, 0.5));
+    new SceneOptimizer(this.scene, options);
+  }
+
   // RollbackHost adapter — lets RollbackManager drive replay without circular deps
   get _rollbackHost(): RollbackHost {
     const game = this;
@@ -536,7 +566,6 @@ export class Game {
       if (!fighter?._pendingSuperActivation || fighter.superPowerActive) continue;
       fighter._pendingSuperActivation = false;
       fighter.applyServerSuperActivation();
-      if (!this._isReplaying) this.bgm.crossfadeTo('power');
     }
 
     const f1Active = f1.isAttackActive();
@@ -574,6 +603,11 @@ export class Game {
     this.ui.updateHealth(local.health, remote.health, GC.MAX_HEALTH);
     this.ui.updateSuper(local.superMeter, remote.superMeter, GC.SUPER_MAX);
     this.ui.setPowerMode(local.superPowerActive, remote.superPowerActive);
+
+    // Keep BGM in sync with super state. Polling here (not events) is reliable
+    // because rollback replay skips audio triggers but _updateHud only runs on
+    // non-replay ticks, so it always sees the settled post-rollback fighter state.
+    this.bgm.crossfadeTo(f1.superPowerActive || f2.superPowerActive ? 'power' : 'main');
 
     if (remote.comboCount >= 2 && remote.comboTimer > 0) {
       this.ui.updateCombo(0, remote.comboCount, remote.comboDamage);

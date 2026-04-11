@@ -123,11 +123,11 @@ export function setupNetworkEvents(game: Game): void {
 
   // With input sync, both clients activate super at the same frame locally.
   // This handler is a fallback — only apply if the fighter isn't already active.
+  // BGM is driven by _updateHud polling, not by this event, so no crossfadeTo here.
   game.network.on('superActivated', (msg) => {
     const fighter = game.fighters[msg.playerIndex];
     if (fighter && !fighter.superPowerActive) {
       fighter.applyServerSuperActivation();
-      game.bgm.crossfadeTo('power');
     }
   });
 
