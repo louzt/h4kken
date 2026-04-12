@@ -172,6 +172,7 @@ export const ANIM_CONFIG = {
   victoryCelebrate: { glb: 'Celebration', blend: 0.2 },
   victoryYes: { glb: 'Yes', src: 'ual2', blend: 0.2 },
   victorySmug: { glb: 'Idle_FoldArms_Loop', src: 'ual2', loop: true, blend: 0.3 },
+  victoryTired: { glb: 'Idle_Tired_Loop', loop: true, blend: 0.3 },
   // ── Pre-fight intro / taunt animations ──────────────────────────────────
   introDrink: { glb: 'Drink', blend: 0.2 },
   introGroundSitEnter: { glb: 'GroundSit_Enter', blend: 0.2 },

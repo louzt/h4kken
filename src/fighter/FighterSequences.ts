@@ -9,18 +9,25 @@ import type { Fighter } from './Fighter';
 
 const GC = GAME_CONSTANTS;
 
-export function setVictory(fighter: Fighter, animName?: string): string {
+export function setVictory(fighter: Fighter, animName?: AnimKey): AnimKey {
   fighter.state = FIGHTER_STATE.VICTORY;
   fighter.velocity.set(0, 0, 0);
-  const chosen = animName ?? pickRandom(ANIM_POOLS.victory);
+  let chosen: AnimKey;
+  if (animName) {
+    chosen = animName;
+  } else if (fighter.health / fighter.maxHealth <= 0.15 && Math.random() < 0.65) {
+    chosen = 'victoryTired';
+  } else {
+    chosen = pickRandom(ANIM_POOLS.victory);
+  }
   fighter.playAnimation(chosen);
   return chosen;
 }
 
-export function setDefeat(fighter: Fighter, animName?: string, matchOver = false): string {
+export function setDefeat(fighter: Fighter, animName?: AnimKey, matchOver = false): AnimKey {
   fighter.state = FIGHTER_STATE.DEFEAT;
   fighter.velocity.set(0, 0, 0);
-  let chosen: string;
+  let chosen: AnimKey;
   if (animName) {
     chosen = animName;
   } else if (matchOver) {
@@ -30,7 +37,7 @@ export function setDefeat(fighter: Fighter, animName?: string, matchOver = false
   } else {
     chosen = 'defeat';
   }
-  fighter.playAnimation(chosen as AnimKey);
+  fighter.playAnimation(chosen);
   return chosen;
 }
 

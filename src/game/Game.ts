@@ -743,7 +743,7 @@ export class Game {
       winnerIdx = 1;
     } else {
       if (!this.isPractice) {
-        this.network.sendRoundResult(-1, f1.wins, f2.wins, false, '', '');
+        this.network.sendRoundResult(-1, f1.wins, f2.wins, false, 'idle', 'idle');
       }
       this.ui.showAnnouncement('DRAW', 'TIME UP', 2000);
       if (this.isPractice) {

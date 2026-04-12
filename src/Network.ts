@@ -2,6 +2,7 @@
 // H4KKEN - Network Client
 // ============================================================
 
+import type { AnimKey } from './fighter/animations';
 import { decodeSyncInput, encodeSyncInput, OP } from './game/InputCodec';
 import type { InputState } from './Input';
 
@@ -42,8 +43,8 @@ interface RoundResultMsg {
   p1Wins: number;
   p2Wins: number;
   matchOver: boolean;
-  victoryAnim: string;
-  defeatAnim: string;
+  victoryAnim: AnimKey;
+  defeatAnim: AnimKey;
 }
 
 interface SuperActivatedMsg {
@@ -119,8 +120,8 @@ type RoundResultOutMsg = {
   p1Wins: number;
   p2Wins: number;
   matchOver: boolean;
-  victoryAnim: string;
-  defeatAnim: string;
+  victoryAnim: AnimKey;
+  defeatAnim: AnimKey;
 };
 type LeaveMsg = { type: 'leave' };
 
@@ -296,8 +297,8 @@ export class Network {
     p1Wins: number,
     p2Wins: number,
     matchOver: boolean,
-    victoryAnim: string,
-    defeatAnim: string,
+    victoryAnim: AnimKey,
+    defeatAnim: AnimKey,
   ) {
     this.send({ type: 'roundResult', winner, p1Wins, p2Wins, matchOver, victoryAnim, defeatAnim });
   }

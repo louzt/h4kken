@@ -1144,11 +1144,11 @@ export class Fighter {
     }
   }
 
-  setVictory(animName?: string): string {
+  setVictory(animName?: AnimKey): AnimKey {
     return setVictory(this, animName);
   }
 
-  setDefeat(animName?: string, matchOver = false): string {
+  setDefeat(animName?: AnimKey, matchOver = false): AnimKey {
     return setDefeat(this, animName, matchOver);
   }
 
