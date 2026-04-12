@@ -504,6 +504,9 @@ export class Fighter {
     this._superActivationLock = true;
     this._superWasActivatedThisRound = true;
     this._pendingSuperActivation = false;
+    // Freeze horizontal movement during the activation flash — state handlers are skipped while locked
+    this.velocity.x = 0;
+    this.velocity.z = 0;
     if (this._highlightLayer) this._highlightLayer.isEnabled = true;
     this._shimmerActive = false;
     this._superParticles?.start();

@@ -218,6 +218,10 @@ export function handleRunState(fighter: Fighter, input: InputState): void {
   }
 
   fighter.velocity.x = GC.RUN_SPEED * fighter.speedMult;
+  // Re-sync sprint if something disrupted the animation externally (super transition, etc.)
+  if (fighter.currentAnimKey !== 'sprint') {
+    fighter.playAnimation('sprint');
+  }
 }
 
 export function handleAttackState(fighter: Fighter, input: InputState): void {
@@ -344,6 +348,11 @@ export function handleSidestepState(fighter: Fighter): void {
   fighter.sideStepTimer--;
   fighter.velocity.z = fighter.sideStepDir * GC.SIDESTEP_SPEED * fighter.speedMult;
 
+  const expectedAnim = fighter.sideStepDir < 0 ? 'dodgeLeft' : 'dodgeRight';
+  if (fighter.currentAnimKey !== expectedAnim) {
+    fighter.playAnimation(expectedAnim);
+  }
+
   if (fighter.sideStepTimer <= 0) {
     fighter.velocity.z = 0;
     fighter.state = FIGHTER_STATE.IDLE;
@@ -353,6 +362,9 @@ export function handleSidestepState(fighter: Fighter): void {
 
 export function handleDashState(fighter: Fighter): void {
   fighter.dashTimer--;
+  if (fighter.currentAnimKey !== 'runBack') {
+    fighter.playAnimation('runBack');
+  }
   if (fighter.dashTimer <= 0) {
     fighter.velocity.x = 0;
     fighter.state = FIGHTER_STATE.IDLE;
