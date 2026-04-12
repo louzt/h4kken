@@ -16,6 +16,7 @@ import {
   StandardMaterial,
   Vector3,
 } from '@babylonjs/core';
+import { isTouchDevice } from './MobileControls';
 
 export class Stage {
   scene: Scene;
@@ -40,6 +41,23 @@ export class Stage {
     this.scene.fogColor = new Color3(0.6, 0.8, 0.933);
     this.scene.fogStart = 40;
     this.scene.fogEnd = 90;
+
+    this._freezeStatics();
+  }
+
+  private _freezeStatics(): void {
+    // All stage meshes are constructed before any Fighter is added to the scene,
+    // so everything in the scene at this point is a static stage mesh. Freeze
+    // their world matrices and materials to eliminate per-frame recalculation.
+    for (const mesh of this.scene.meshes) {
+      mesh.freezeWorldMatrix();
+      mesh.doNotSyncBoundingInfo = true;
+      // Prevent frustum cull checks — every stage mesh is always visible.
+      mesh.alwaysSelectAsActiveMesh = true;
+      if (mesh.material && !mesh.material.isFrozen) {
+        mesh.material.freeze();
+      }
+    }
   }
 
   setupLighting() {
@@ -56,10 +74,15 @@ export class Stage {
     sun.intensity = 1.8;
     sun.position = new Vector3(8, 18, 10);
 
-    // 2048 map + PCF for smooth soft shadows
-    const shadowGen = new ShadowGenerator(2048, sun);
+    // Mobile: 1024px shadow map + QUALITY_LOW (4× fewer texels, fewer PCF samples).
+    // Desktop: 2048px + QUALITY_MEDIUM for smooth soft shadows.
+    const mobile = isTouchDevice();
+    const shadowMapSize = mobile ? 1024 : 2048;
+    const shadowGen = new ShadowGenerator(shadowMapSize, sun);
     shadowGen.usePercentageCloserFiltering = true;
-    shadowGen.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
+    shadowGen.filteringQuality = mobile
+      ? ShadowGenerator.QUALITY_LOW
+      : ShadowGenerator.QUALITY_MEDIUM;
     shadowGen.bias = 0.0008;
 
     this._shadowGen = shadowGen;

@@ -100,7 +100,7 @@ export class Game {
   private static async _makeEngine(canvas: HTMLCanvasElement): Promise<AbstractEngine> {
     const mobile = isTouchDevice();
     const antialias = !mobile;
-    const options = { antialias, audioEngine: true };
+    const options = { antialias, audioEngine: true, powerPreference: 'high-performance' as const };
     // scalingLevel > 1 reduces rendered pixels (faster); < 1 would supersample (slower).
     // On mobile, render at CSS pixel size regardless of device pixel ratio — the browser
     // upscales from there. dpr/2 gives a mild downscale on high-dpi devices (dpr=3 → 1.5).
@@ -127,6 +127,11 @@ export class Game {
 
     this.scene = new Scene(this.engine);
     this.scene.ambientColor = new Color3(0.1, 0.1, 0.1);
+    // No raycasting on mouse-move — the game has no pointer-over mesh interactions.
+    this.scene.skipPointerMovePicking = true;
+    // The sky sphere covers every pixel every frame — redundant to clear the background first.
+    this.scene.autoClear = false;
+    this.scene.autoClearDepthAndStencil = false;
 
     this.camera = new FreeCamera('camera', new Vector3(0, 3, -10), this.scene);
     this.camera.inputs.clear(); // prevent FreeCamera from hijacking WASD/arrow keys
@@ -134,9 +139,11 @@ export class Game {
     this.camera.maxZ = 100;
     this.camera.fov = 0.785; // ~45 degrees in radians
 
-    // Bloom via DefaultRenderingPipeline — stored so SceneOptimizer can disable it
+    // Bloom via DefaultRenderingPipeline — stored so SceneOptimizer can disable it.
+    // Bloom is skipped on mobile from frame 1: it's the single most expensive effect
+    // and the optimizer would kill it within 2s anyway on any struggling device.
     this._pipeline = new DefaultRenderingPipeline('pipeline', true, this.scene, [this.camera]);
-    this._pipeline.bloomEnabled = true;
+    this._pipeline.bloomEnabled = !isTouchDevice();
     this._pipeline.bloomThreshold = 0.82;
     this._pipeline.bloomWeight = 0.35;
     this._pipeline.bloomKernel = 64;
@@ -335,7 +342,9 @@ export class Game {
     this.startPracticeCountdown();
   }
 
-  startPracticeCountdown() {
+  async startPracticeCountdown() {
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
     this.state = GAME_STATE.COUNTDOWN;
     const roundSfx =
       this.round === 1
@@ -343,30 +352,30 @@ export class Game {
         : this.round === 2
           ? 'announce_round2'
           : 'announce_finalround';
+
     this.ui.showAnnouncement(`ROUND ${this.round}`, '', 1100);
     this.audio.play(roundSfx, 0.63);
     if (this.round === 1) this._startIntroAnimations();
-    setTimeout(() => {
-      this.ui.showAnnouncement('3', '', 900, 'countdown');
-      this.audio.play('count_3', 0.63);
-      setTimeout(() => {
-        this.ui.showAnnouncement('2', '', 900, 'countdown');
-        this.audio.play('count_2', 0.63);
-        setTimeout(() => {
-          this.ui.showAnnouncement('1', '', 900, 'countdown');
-          this.audio.play('count_1', 0.63);
-          setTimeout(() => {
-            this.ui.showAnnouncement('FIGHT!', '', 1000);
-            this.audio.play('announce_fight', 0.63);
-            // Ensure both fighters are in idle before handing control back
-            this.fighters[0]?.cancelIntro();
-            this.fighters[1]?.cancelIntro();
-            this.state = GAME_STATE.FIGHTING;
-            this._roundResetting = false;
-          }, 900);
-        }, 900);
-      }, 900);
-    }, 1100);
+
+    await sleep(1600);
+    this.ui.showAnnouncement('3', '', 900, 'countdown');
+    this.audio.play('count_3', 0.63);
+
+    await sleep(900);
+    this.ui.showAnnouncement('2', '', 900, 'countdown');
+    this.audio.play('count_2', 0.63);
+
+    await sleep(900);
+    this.ui.showAnnouncement('1', '', 900, 'countdown');
+    this.audio.play('count_1', 0.63);
+
+    await sleep(900);
+    this.ui.showAnnouncement('FIGHT!', '', 1000);
+    this.audio.play('announce_fight', 0.63);
+    this.fighters[0]?.cancelIntro();
+    this.fighters[1]?.cancelIntro();
+    this.state = GAME_STATE.FIGHTING;
+    this._roundResetting = false;
   }
 
   _startIntroAnimations() {
@@ -505,15 +514,32 @@ export class Game {
   // Start Babylon.js SceneOptimizer — progressively degrades visual quality
   // until FPS target is met. Called once after asset load. Custom options skip
   // MergeMeshesOptimization (would break animated fighter skeletons).
+  //
+  // Mobile path skips PostProcessesOptimization entirely: bloom is already off
+  // and PostProcessesOptimization would also kill ACES tone mapping, leaving a
+  // washed-out image with no remaining visual benefit.
+  //
+  // Hardware scaling cap: desktop=1.5 (67% CSS res), mobile=1.25 (80% CSS res).
+  // The old cap of 2.0 rendered at 25–33% native pixels on high-dpi phones —
+  // genuinely worse than PS1 quality. If we can't hit 45fps after bloom+shadow
+  // removal, a small resolution nudge is all that's left; the bottleneck at
+  // that point is CPU/JS, not GPU fillrate, so bigger scaling doesn't help.
   private _startQualityMonitor(): void {
-    const options = new SceneOptimizerOptions(45, 2000); // target 45fps, check every 2s
-    // Priority 0: highest GPU impact, lowest gameplay impact — disable first
-    options.optimizations.push(new PostProcessesOptimization(0)); // bloom off
-    options.optimizations.push(new ShadowsOptimization(0)); // scene.shadowsEnabled = false
-    // Priority 1: particle effects (only during super moves)
-    options.optimizations.push(new ParticlesOptimization(1));
-    // Priority 2: last resort — render at lower resolution (max 2x scaling = 50% res)
-    options.optimizations.push(new HardwareScalingOptimization(2, 2, 0.5));
+    const mobile = isTouchDevice();
+    const options = new SceneOptimizerOptions(45, 1500); // target 45fps, check every 1.5s
+    if (!mobile) {
+      // Desktop: bloom is on, kill it first. On mobile it's already off.
+      options.optimizations.push(new PostProcessesOptimization(0));
+      options.optimizations.push(new ShadowsOptimization(1));
+      options.optimizations.push(new ParticlesOptimization(2));
+      options.optimizations.push(new HardwareScalingOptimization(3, 1.5, 0.25));
+    } else {
+      // Mobile: bloom already off. Kill shadows first, then particles, then
+      // a small resolution nudge as absolute last resort.
+      options.optimizations.push(new ShadowsOptimization(0));
+      options.optimizations.push(new ParticlesOptimization(1));
+      options.optimizations.push(new HardwareScalingOptimization(2, 1.25, 0.25));
+    }
     new SceneOptimizer(this.scene, options);
   }
 
