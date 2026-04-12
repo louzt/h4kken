@@ -1,0 +1,5 @@
+{
+  "entry": ["server.ts"],
+  "project": ["src/**/*.ts"],
+  "ignoreBinaries": ["dist/server.js"]
+}

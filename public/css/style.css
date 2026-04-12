@@ -6,6 +6,7 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  -webkit-touch-callout: none;
 }
 
 :root {
@@ -33,6 +34,11 @@ html, body {
   background: var(--bg-dark);
   color: var(--text);
   font-family: var(--font-body);
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 #game-canvas {
@@ -373,6 +379,7 @@ html, body {
   width: 100%;
   z-index: 50;
   pointer-events: none;
+  touch-action: none;
 }
 
 .hud.hidden {
@@ -383,15 +390,11 @@ html, body {
   padding: 15px 30px 10px;
 }
 
-.player-info {
+.player-names-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.player-info.p2-info {
-  flex-direction: row-reverse;
+  margin-bottom: 3px;
 }
 
 .player-name {
@@ -399,10 +402,18 @@ html, body {
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.08em;
+  text-shadow: 0 1px 5px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,0.8);
 }
 
-.p1-info .player-name { color: var(--p1-color); }
-.p2-info .player-name { color: var(--p2-color); }
+#p1-name { color: var(--p1-color); }
+#p2-name { color: var(--p2-color); }
+
+.win-dots-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 3px;
+}
 
 .win-indicators {
   display: flex;
@@ -413,14 +424,15 @@ html, body {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.3);
+  border: 2px solid rgba(255,255,255,0.4);
   background: transparent;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
 }
 
 .win-dot.won {
   background: var(--warning);
   border-color: var(--warning);
-  box-shadow: 0 0 8px rgba(255,170,0,0.5);
+  filter: drop-shadow(0 0 5px rgba(255,170,0,0.7)) drop-shadow(0 1px 3px rgba(0,0,0,0.9));
 }
 
 .health-bars {
@@ -493,6 +505,124 @@ html, body {
 .p2-bar .health-bar-fill,
 .p2-bar .health-bar-damage {
   left: 0;
+}
+
+/* ── Super Meter Bars ──────────────────────────────────────────────────────── */
+
+.super-bars {
+  display: flex;
+  align-items: center;
+  margin-top: 3px;
+}
+
+.super-bar-wrapper {
+  flex: 1;
+  height: 6px;
+}
+
+.super-bar-bg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.45);
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.super-bar-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #0055cc, #00ccff);
+  transition: width 0.08s linear;
+}
+
+.super-bar-fill.super-full {
+  background: linear-gradient(90deg, #00aaff, #ffffff);
+  animation: super-pulse 0.4s ease-in-out infinite;
+}
+
+@keyframes super-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #00ccff; }
+  50%       { opacity: 0.75; box-shadow: 0 0 14px #00ccff; }
+}
+
+.p1-super-bar .super-bar-fill {
+  right: 0;
+  left: auto;
+}
+
+.p2-super-bar .super-bar-fill {
+  left: 0;
+  background: linear-gradient(90deg, #cc2200, #ff6622);
+}
+
+.p2-super-bar .super-bar-fill.super-full {
+  background: linear-gradient(90deg, #ff3300, #ffaa44);
+  animation: super-pulse-p2 0.4s ease-in-out infinite;
+}
+
+@keyframes super-pulse-p2 {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #ff6622; }
+  50%       { opacity: 0.75; box-shadow: 0 0 14px #ff6622; }
+}
+
+.super-key-hint {
+  display: none;
+  font-size: 14px;
+  text-align: center;
+  letter-spacing: 2px;
+  margin-top: 3px;
+  font-weight: 900;
+  text-shadow: 0 0 6px currentColor;
+}
+
+.super-bar-wrapper.super-ready .super-key-hint {
+  display: block;
+  animation: super-key-pulse 0.9s ease-in-out infinite;
+}
+
+.p1-super-bar.super-ready .super-key-hint {
+  color: #66ddff;
+}
+
+.p2-super-bar.super-ready .super-key-hint {
+  color: #ff8844;
+}
+
+@keyframes super-key-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.15); }
+}
+
+.super-spacer {
+  width: 70px;
+  flex-shrink: 0;
+}
+
+/* ── Power Mode HUD highlighting ────────────────────────────────────────────── */
+
+.health-bar-fill.power-active {
+  background: linear-gradient(180deg, #ffdd00, #ff8800) !important;
+  box-shadow: 0 0 8px #ffaa00, 0 0 20px #ff8800;
+  animation: power-health-pulse 0.35s ease-in-out infinite;
+}
+
+@keyframes power-health-pulse {
+  0%, 100% { box-shadow: 0 0 8px #ffaa00, 0 0 20px #ff8800; }
+  50%       { box-shadow: 0 0 16px #ffdd00, 0 0 40px #ff8800; }
+}
+
+.p1-super-bar .super-bar-fill.power-active,
+.p2-super-bar .super-bar-fill.power-active {
+  background: linear-gradient(90deg, #ffaa00, #ffff44) !important;
+  animation: power-super-pulse 0.35s ease-in-out infinite;
+}
+
+@keyframes power-super-pulse {
+  0%, 100% { box-shadow: 0 0 6px #ffaa00; }
+  50%       { box-shadow: 0 0 18px #ffff44; }
 }
 
 .timer-box {
@@ -647,6 +777,15 @@ html, body {
     0 0 80px rgba(255,170,0,0.3);
 }
 
+.announce-text.countdown {
+  font-size: 14rem;
+  line-height: 1;
+  text-shadow:
+    0 0 40px rgba(0,240,255,0.9),
+    0 0 120px rgba(0,240,255,0.4),
+    4px 4px 0 rgba(255,45,106,0.7);
+}
+
 /* ============================================================
    Input Display (debug, can be toggled)
    ============================================================ */
@@ -673,4 +812,227 @@ html, body {
   .game-title { font-size: 3.5rem; }
   .controls-grid { grid-template-columns: 1fr; }
   .menu-btn, .menu-input { width: 250px; }
+}
+
+/* ============================================================
+   Mobile — Rotate Prompt
+   ============================================================ */
+
+#rotate-prompt {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: var(--bg-dark);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  font-family: var(--font-main);
+  text-align: center;
+  gap: 1.2rem;
+}
+
+#rotate-prompt p {
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+.rotate-icon {
+  font-size: 4rem;
+  animation: rotate-hint 2s ease-in-out infinite;
+}
+
+@keyframes rotate-hint {
+  0%   { transform: rotate(0deg); }
+  40%  { transform: rotate(90deg); }
+  60%  { transform: rotate(90deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@media screen and (orientation: portrait) and (max-width: 900px) {
+  #rotate-prompt { display: flex; }
+}
+
+/* ============================================================
+   Mobile — Touch Controls Overlay
+   ============================================================ */
+
+#game-canvas { touch-action: none; }
+
+#mobile-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none; /* container passes through — only buttons capture events */
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  /* safe-area-inset-bottom keeps controls above the iOS home bar */
+  padding: 0 20px max(28px, env(safe-area-inset-bottom, 0px));
+}
+
+#mobile-controls.hidden { display: none; }
+
+/* D-pad: 3×3 grid, only 4 arrow cells occupied */
+#dpad {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 4px;
+}
+
+#mb-up    { grid-column: 2; grid-row: 1; }
+#mb-left  { grid-column: 1; grid-row: 2; }
+#mb-down  { grid-column: 2; grid-row: 3; }
+#mb-right { grid-column: 3; grid-row: 2; }
+
+.dpad-btn {
+  background: rgba(0, 240, 255, 0.1);
+  border: 2px solid rgba(0, 240, 255, 0.35);
+  border-radius: 10px;
+  color: var(--primary);
+  font-size: 1.3rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.04s;
+}
+
+.dpad-btn.pressed,
+.dpad-btn:active {
+  background: rgba(0, 240, 255, 0.32);
+  border-color: rgba(0, 240, 255, 0.8);
+}
+
+/* Action buttons: 2-column, 3-row grid */
+#action-btns {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: repeat(2, 64px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 6px;
+}
+
+.action-btn {
+  background: rgba(255, 45, 106, 0.12);
+  border: 2px solid rgba(255, 45, 106, 0.45);
+  border-radius: 10px;
+  color: var(--secondary);
+  font-family: var(--font-main);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.04s;
+}
+
+.action-btn.pressed,
+.action-btn:active {
+  background: rgba(255, 45, 106, 0.38);
+  border-color: rgba(255, 45, 106, 0.9);
+}
+
+.block-btn {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+}
+.block-btn.pressed,
+.block-btn:active {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.super-btn {
+  border-color: rgba(255, 200, 0, 0.45);
+  color: #ffc800;
+  background: rgba(255, 200, 0, 0.08);
+}
+.super-btn.pressed,
+.super-btn:active {
+  background: rgba(255, 200, 0, 0.32);
+}
+
+/* Portrait mobile — compact HUD, compact controls */
+@media screen and (max-width: 768px) {
+  .health-bar-section { padding: 4px 8px 2px; }
+  .health-bar-wrapper { height: 18px; }
+  .player-names-row { margin-bottom: 2px; }
+  .player-name { font-size: 0.65rem; }
+  .super-bars { margin-top: 2px; }
+  .win-dots-row { margin-top: 2px; }
+  .win-dot { width: 8px; height: 8px; }
+  .super-key-hint { display: none; }
+  .timer-box { width: 40px; height: 34px; }
+  .timer-box span { font-size: 1.1rem; }
+
+  /* Controls sit closer to the edge */
+  #mobile-controls { padding: 0 12px max(16px, env(safe-area-inset-bottom, 0px)); }
+
+  /* 48 px = above Apple/Google 44 pt minimum, well below the original 56 px.
+     Fighting game players navigate by thumb memory, not by button size. */
+  #dpad {
+    grid-template-columns: repeat(3, 48px);
+    grid-template-rows: repeat(3, 48px);
+    gap: 4px;
+  }
+
+  #action-btns {
+    grid-template-columns: repeat(2, 54px);
+    grid-template-rows: repeat(3, 48px);
+    gap: 6px;
+  }
+
+  .action-btn { font-size: 0.55rem; border-radius: 8px; }
+  .dpad-btn   { font-size: 1.1rem;  border-radius: 8px; }
+}
+
+/* Landscape mobile — even tighter, controls can't eat vertical space */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  /* HUD */
+  .health-bar-section { padding: 4px 8px 2px; }
+  .health-bar-wrapper { height: 14px; }
+  .super-bar-bg  { height: 6px; }
+  .timer-box { width: 40px; height: 30px; }
+  .timer-box span { font-size: 1rem; }
+  .player-name   { font-size: 0.55rem; }
+  .super-key-hint { display: none; }
+  .win-dot { width: 7px; height: 7px; }
+
+  /* Controls */
+  #mobile-controls { padding: 0 10px max(10px, env(safe-area-inset-bottom, 0px)); }
+  #dpad {
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(3, 44px);
+    gap: 3px;
+  }
+  #action-btns {
+    grid-template-columns: repeat(2, 50px);
+    grid-template-rows: repeat(3, 44px);
+    gap: 5px;
+  }
+  .action-btn { font-size: 0.5rem; border-radius: 7px; }
+  .dpad-btn   { font-size: 1rem;   border-radius: 7px; }
+
+  /* Menu — compress to fit ~390px viewport height */
+  .game-title { font-size: 2rem; margin-bottom: 0.15rem; }
+  .menu-subtitle { font-size: 0.7rem; letter-spacing: 0.25em; margin-bottom: 0.75rem; }
+  .menu-buttons { gap: 0.5rem; }
+  .menu-btn, .menu-input { padding: 0.55rem 2rem; font-size: 0.8rem; width: 260px; }
 }

@@ -1,11 +1,8 @@
 node_modules
-npm-debug.log
-AnimPack01/
-AnimPack01.zip
+package-lock.json
+dist
 .git
 .gitignore
 .github
-*.md
-Dockerfile
-docker-compose.yml
+compose.yaml
 .dockerignore

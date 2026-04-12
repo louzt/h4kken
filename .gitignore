@@ -1,6 +1,25 @@
+# Dependencies
 node_modules/
-npm-debug.log*
 
-# Original asset pack (extracted files are in public/assets/)
-AnimPack01/
-AnimPack01.zip
+# Build output
+dist/
+
+# npm lockfile (project uses bun)
+package-lock.json
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo

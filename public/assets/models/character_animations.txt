@@ -1,0 +1,318 @@
+Animation Reference — H4KKEN
+Same 65-bone Quaternius Universal Rig — animations from either GLB play on character.glb
+https://quaternius.com/animviewer.html
+
+=============================================================
+UAL1  character.glb  (127 animations)
+=============================================================
+A_TPose  [also in UAL2]
+BackFlip
+Celebration
+ClimbLedge
+ClimbLedge_RM
+Climb_Down_Loop
+Climb_Enter
+Climb_Exit
+Climb_Idle_Loop
+Climb_Left_Loop
+Climb_Left_RM_Loop
+Climb_Right_Loop
+Climb_Right_RM_Loop
+Climb_Up_Loop
+Counter_Angry
+Counter_Enter
+Counter_Exit
+Counter_Give
+Counter_Idle_Loop
+Counter_Show
+Crawl_Bwd_Loop
+Crawl_Enter
+Crawl_Exit
+Crawl_Fwd_Loop
+Crawl_Idle_Loop
+Crawl_Left_Loop
+Crawl_Right_Loop
+Crouch_Bwd_L_Loop
+Crouch_Bwd_Loop
+Crouch_Bwd_R_Loop
+Crouch_Enter
+Crouch_Exit
+Crouch_Fwd_L_Loop
+Crouch_Fwd_Loop
+Crouch_Fwd_R_Loop
+Crouch_Idle_Loop
+Crouch_Left_Loop
+Crouch_Right_Loop
+Crying
+Dance_Loop
+Death01
+Death02
+Dodge_Left
+Dodge_Left_RM
+Dodge_Right
+Dodge_Right_RM
+Drink
+Driving_Loop
+Fixing_Kneeling
+GroundSit_Enter
+GroundSit_Exit
+GroundSit_Idle_Loop
+Hit_Chest
+Hit_Head
+Hit_Shoulder_L
+Hit_Shoulder_R
+Hit_Stomach
+Idle_LookAround_Loop
+Idle_Loop
+Idle_Paper
+Idle_Rock
+Idle_Scissors
+Idle_Talking_Loop
+Idle_Tired_Loop
+Idle_Torch_Loop
+Interact
+Jog_Bwd_L_Loop
+Jog_Bwd_Loop
+Jog_Bwd_R_Loop
+Jog_Fwd_L_Loop
+Jog_Fwd_LeanL_Loop
+Jog_Fwd_LeanR_Loop
+Jog_Fwd_Loop
+Jog_Fwd_R_Loop
+Jog_Left_Loop
+Jog_Right_Loop
+Jump_Land
+Jump_Loop
+Jump_Start
+Kick
+PickUp_Kneeling
+PickUp_Table
+Pistol_Aim_Down
+Pistol_Aim_Neutral
+Pistol_Aim_Up
+Pistol_Idle_Loop
+Pistol_Reload
+Pistol_Shoot
+PunchKick_Enter
+PunchKick_Exit
+Punch_Cross
+Punch_Jab
+Push_Enter
+Push_Exit
+Push_Loop
+Roll
+Roll_RM
+Sitting_Enter
+Sitting_Exit
+Sitting_Idle02_Loop
+Sitting_Idle03_Loop
+Sitting_Idle_Loop
+Sitting_Nodding_Loop
+Sitting_Talking_Loop
+Spell_Double_Enter
+Spell_Double_Exit
+Spell_Double_Idle_Loop
+Spell_Double_Shoot_Loop
+Spell_Simple_Enter
+Spell_Simple_Exit
+Spell_Simple_Idle_Loop
+Spell_Simple_Shoot
+Sprint_Enter
+Sprint_Exit
+Sprint_Loop
+Swim_Fwd_Loop
+Swim_Idle_Loop
+Sword_Attack
+Sword_Attack_RM
+Sword_Attack_Standing
+Sword_Enter
+Sword_Exit
+Sword_Idle
+Turn90_L
+Turn90_R
+Walk_Formal_Loop
+Walk_Loop
+
+=============================================================
+UAL2  UAL2.glb  (135 animations)
+=============================================================
+A_TPose  [also in UAL1]
+Bandage_Loop
+Bow_Aim_Down
+Bow_Aim_Neutral
+Bow_Aim_Up
+Bow_Notch
+Bow_RapidShoot_Loop
+Bow_Shoot
+Chest_Open
+ClimbUp_1m_RM
+ClimbUp_2m_RM
+Consume
+DoubleJump
+Farm_Harvest
+Farm_PickingTree
+Farm_PlantSeed
+Farm_ScatteringSeeds
+Farm_Watering
+Fish_Cast
+Fish_Cast_Idle_Loop
+Fish_OH_Idle_Loop
+Fish_Reel
+Fish_Reel_Failed
+GetOffWall_2m_RM
+Hit_Knockback
+Hit_Knockback_RM
+IdleToLay
+Idle_FoldArms_Loop
+Idle_Lantern_Loop
+Idle_No_Loop
+Idle_Rail_Call
+Idle_Rail_Loop
+Idle_Shield_Break
+Idle_Shield_Loop
+Idle_TalkingPhone_Loop
+JogToFlip
+KipUp
+LayToIdle
+LiftAir_Fall_Impact
+LiftAir_Fall_Loop
+LiftAir_Fall_RM
+LiftAir_Hit_L
+LiftAir_Hit_R
+LiftAir_Idle_Loop
+LiftAir_RM
+Melee_Combo
+Melee_Hook
+Melee_Hook_Rec
+Melee_Knee
+Melee_Knee_Rec
+Melee_Uppercut
+Mining_Loop
+MonsterTransformation
+NinjaJump_Double
+NinjaJump_Idle_Loop
+NinjaJump_Land
+NinjaJump_Start
+OverhandThrow
+SafetyVault_RM
+Shield_Dash_RM
+Shield_OneShot
+Slide_Exit
+Slide_Loop
+Slide_Start
+Sprint_Shield_Loop
+StepUp_RM
+Surprise
+SwordLight_C_Rec
+Sword_Aerial_A
+Sword_Aerial_A_Rec
+Sword_Aerial_B
+Sword_Aerial_Combo_Loop
+Sword_Aerial_Idle_Loop
+Sword_Block
+Sword_Dash_RM
+Sword_GroundPound_RM
+Sword_Heavy_A
+Sword_Heavy_A_Rec
+Sword_Heavy_B
+Sword_Heavy_B_Rec
+Sword_Heavy_C
+Sword_Heavy_C_Rec
+Sword_Heavy_Combo
+Sword_Heavy_D
+Sword_Light_A
+Sword_Light_A_Rec
+Sword_Light_B
+Sword_Light_B_Rec
+Sword_Light_C
+Sword_Light_Combo
+Sword_Light_D
+Sword_Regular_A
+Sword_Regular_A_Rec
+Sword_Regular_B
+Sword_Regular_B_Rec
+Sword_Regular_C
+Sword_Regular_Combo
+Sword_UpperCut_RM
+TreeChopping_Loop
+Turn180_L_RM
+Turm180_R_RM
+Walk_Bwd_L_Loop
+Walk_Bwd_Loop
+Walk_Bwd_R_Loop
+Walk_Carry_Loop
+Walk_Fwd_L
+Walk_Fwd_Loop
+Walk_Fwd_R_Loop
+Walk_L_Loop
+Walk_R_Loop
+WallRun_Jump_L
+WallRun_Jump_R
+WallRun_L_Loop
+WallRun_R_Loop
+Yes
+Zombie_Bite
+Zombie_Idle_Loop
+Zombie_Run_Bwd_L_Loop
+Zombie_Run_Bwd_Loop
+Zombie_Run_Bwd_R_Loop
+Zombie_Run_Fwd_L_Loop
+Zombie_Run_Fwd_Loop
+Zombie_Run_Fwd_R_Loop
+Zombie_Run_L_Loop
+Zombie_Run_R_Loop
+Zombie_Scratch
+Zombie_Spawn
+Zombie_Walk_Bwd_L_Loop
+Zombie_Walk_Bwd_Loop
+Zombie_Walk_Bwd_R_Loop
+Zombie_Walk_Fwd_L_Loop
+Zombie_Walk_Fwd_Loop
+Zombie_Walk_Fwd_R_Loop
+Zombie_Walk_L_Loop
+Zombie_Walk_R_Loop
+
+=============================================================
+COMPARISON
+=============================================================
+Shared (1): A_TPose
+
+Only in UAL1 (126) — animations with no UAL2 equivalent:
+  BackFlip / Celebration / Crying / Dance_Loop
+  Death01 / Death02
+  Dodge_Left / Dodge_Right (+ _RM variants)
+  Hit_Chest / Hit_Head / Hit_Shoulder_L / Hit_Shoulder_R / Hit_Stomach
+  Idle_Loop / Idle_Tired_Loop / Idle_Torch_Loop / Idle_LookAround_Loop
+  Jog_Bwd_* / Jog_Fwd_* / Jog_Left_Loop / Jog_Right_Loop
+  Jump_Land / Jump_Loop / Jump_Start
+  Kick / Punch_Cross / Punch_Jab / PunchKick_Enter / PunchKick_Exit
+  Roll / Roll_RM
+  Sprint_Enter / Sprint_Exit / Sprint_Loop
+  Sword_Attack / Sword_Attack_RM / Sword_Attack_Standing / Sword_Enter / Sword_Exit / Sword_Idle
+  Crouch_* (enter, exit, idle, walk loops)
+  Turn90_L / Turn90_R
+  Walk_Formal_Loop / Walk_Loop
+
+Only in UAL2 (134) — use src: 'ual2' in ANIM_CONFIG:
+  COMBAT:
+    Melee_Combo / Melee_Hook / Melee_Hook_Rec
+    Melee_Knee / Melee_Knee_Rec / Melee_Uppercut
+    Hit_Knockback / Hit_Knockback_RM
+    OverhandThrow / Surprise
+  SWORD CHAINS:
+    Sword_Light_A/B/C/D / Sword_Light_Combo / SwordLight_C_Rec
+    Sword_Regular_A/B/C / Sword_Regular_Combo
+    Sword_Heavy_A/B/C/D / Sword_Heavy_Combo
+    Sword_Aerial_A/B / Sword_Aerial_Combo_Loop / Sword_Aerial_Idle_Loop
+    Sword_Block / Sword_Dash_RM / Sword_GroundPound_RM / Sword_UpperCut_RM
+  MOVEMENT:
+    DoubleJump
+    NinjaJump_Double / NinjaJump_Start / NinjaJump_Land / NinjaJump_Idle_Loop
+    KipUp (floor get-up) / JogToFlip
+    Slide_Start / Slide_Loop / Slide_Exit
+    Walk_Fwd_L/R / Walk_Bwd_L/R / Walk_L/R loops
+    Turn180_L_RM / Turn180_R_RM
+    WallRun_L/R_Loop / WallRun_Jump_L/R
+  MISC:
+    Bandage_Loop / Consume / Idle_FoldArms_Loop / Idle_Shield_Loop
+    IdleToLay / LayToIdle / Yes / Idle_No_Loop
