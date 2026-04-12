@@ -66,6 +66,8 @@ export class BotAI {
     }
     this._comboStep = 0;
 
+    if (this._attackCooldown > 0) this._attackCooldown--;
+
     if (this._decisionTimer > 0) {
       this._decisionTimer--;
       if (this._heldInput.right) input.right = true;
@@ -75,24 +77,104 @@ export class BotAI {
       if (this._heldInput.block) input.block = true;
       return input;
     }
-    if (this._attackCooldown > 0) this._attackCooldown--;
 
     const dx = opponent.position.x - bot.position.x;
     const dz = opponent.position.z - bot.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
     this._heldInput = {};
 
-    if (dist > 5.0) return this._decideFar(input);
-    if (dist > 2.5) return this._decideMid(input, dz);
+    // While super is active: relentless rush — dash in and spam attacks, no caution.
+    if (bot.superPowerActive) return this._decidePowerMode(input, dist, dz);
+
+    if (this._shouldBlock(opponent, dist)) {
+      input.block = true;
+      this._heldInput.block = true;
+      return input;
+    }
+
+    // Attack reach: offset + hitboxSize + defHalfW ≈ 1.6 (LP) to 1.9 (RK) units.
+    // Thresholds match real hitbox math so attacks actually land.
+    if (dist > 4.0) return this._decideFar(input);
+    if (dist > 1.6) return this._decideMid(input, dz);
     return this._decideClose(input, dz);
+  }
+
+  private _shouldBlock(opponent: Fighter, dist: number): boolean {
+    if (opponent.state === FIGHTER_STATE.ATTACKING && Math.random() < 0.7) {
+      this._decisionTimer = 14;
+      return true;
+    }
+    const rushing =
+      dist < 3.0 &&
+      (opponent.state === FIGHTER_STATE.RUN ||
+        opponent.state === FIGHTER_STATE.WALK_FORWARD ||
+        opponent.state === FIGHTER_STATE.JUMP_FORWARD);
+    if (rushing && Math.random() < 0.45) {
+      this._decisionTimer = 10;
+      return true;
+    }
+    return false;
+  }
+
+  // Super active: close distance instantly and attack every opportunity
+  private _decidePowerMode(input: InputState, dist: number, dz: number): InputState {
+    if (dist > 1.6) {
+      // Sprint in — dashRight enters RUN, right also set so handleRunState
+      // never sees !forward on the re-evaluation frame and cancels the run.
+      input.dashRight = true;
+      input.right = true;
+      this._heldInput.right = true;
+      this._decisionTimer = 40;
+      return input;
+    }
+    // In range — attack on every available frame, no cooldown hesitation
+    if (this._attackCooldown <= 0) {
+      const r = Math.random();
+      if (r < 0.35) {
+        input.lpJust = true;
+        input.lp = true;
+        this._comboStep = 1;
+        this._comboTimer = 14;
+        this._attackCooldown = 12;
+        this._decisionTimer = 4;
+      } else if (r < 0.6) {
+        input.rpJust = true;
+        input.rp = true;
+        this._attackCooldown = 12;
+        this._decisionTimer = 6;
+      } else if (r < 0.8) {
+        input.lkJust = true;
+        input.lk = true;
+        this._attackCooldown = 12;
+        this._decisionTimer = 6;
+      } else {
+        input.rkJust = true;
+        input.rk = true;
+        this._attackCooldown = 14;
+        this._decisionTimer = 8;
+      }
+    } else {
+      // Cooldown ticking — stay on top, nudge Z if needed
+      if (Math.abs(dz) > 0.5) {
+        if (dz > 0) input.sideStepDown = true;
+        else input.sideStepUp = true;
+        this._decisionTimer = 3;
+      } else {
+        input.right = true;
+        this._heldInput.right = true;
+        this._decisionTimer = 3;
+      }
+    }
+    return input;
   }
 
   private _decideFar(input: InputState): InputState {
     const rand = Math.random();
     if (rand < 0.5) {
-      // Dash forward — right key maps to dashForward for both fighters
+      // Dash forward — dashRight starts RUN state, held right keeps it running
       input.dashRight = true;
-      this._decisionTimer = 8;
+      this._heldInput.right = true;
+      this._decisionTimer = 18;
     } else if (rand < 0.8) {
       // Run toward opponent
       input.right = true;
@@ -114,24 +196,20 @@ export class BotAI {
     return input;
   }
 
+  // Approach range (1.6–4.0): attacks won't land here, focus on closing fast
   private _decideMid(input: InputState, dz: number): InputState {
     const rand = Math.random();
-    if (rand < 0.3 && this._attackCooldown <= 0) {
-      input.lpJust = true;
-      input.lp = true;
-      this._attackCooldown = 26;
-      this._decisionTimer = 16;
-    } else if (rand < 0.5 && this._attackCooldown <= 0) {
-      input.lkJust = true;
-      input.lk = true;
-      this._attackCooldown = 30;
-      this._decisionTimer = 16;
-    } else if (rand < 0.65) {
-      // Close the gap
+    if (rand < 0.5) {
+      // Run in — most common action in this range
       input.right = true;
       this._heldInput.right = true;
-      this._decisionTimer = 10;
-    } else if (rand < 0.78 && this._attackCooldown <= 0) {
+      this._decisionTimer = 12;
+    } else if (rand < 0.75) {
+      // Dash run
+      input.dashRight = true;
+      this._heldInput.right = true;
+      this._decisionTimer = 14;
+    } else if (rand < 0.88) {
       // Jump in
       input.upJust = true;
       input.up = true;
@@ -139,55 +217,52 @@ export class BotAI {
       input.right = true;
       this._heldInput.right = true;
       this._decisionTimer = 10;
-    } else if (rand < 0.88) {
-      input.dashRight = true;
-      this._decisionTimer = 6;
     } else {
-      // Sidestep to align Z with opponent
+      // Align Z so attacks connect on arrival
       if (dz > 0) input.sideStepDown = true;
       else input.sideStepUp = true;
-      this._decisionTimer = 7;
+      this._decisionTimer = 6;
     }
     return input;
   }
 
   private _decideClose(input: InputState, dz: number): InputState {
     const rand = Math.random();
-    if (rand < 0.3 && this._attackCooldown <= 0) {
+    if (rand < 0.4 && this._attackCooldown <= 0) {
       // LP combo starter (4-hit chain)
       input.lpJust = true;
       input.lp = true;
       this._comboStep = 1;
       this._comboTimer = 14;
-      this._attackCooldown = 48;
+      this._attackCooldown = 22;
       this._decisionTimer = 5;
-    } else if (rand < 0.46 && this._attackCooldown <= 0) {
+    } else if (rand < 0.58 && this._attackCooldown <= 0) {
       input.rpJust = true;
       input.rp = true;
-      this._attackCooldown = 34;
-      this._decisionTimer = 15;
-    } else if (rand < 0.6 && this._attackCooldown <= 0) {
+      this._attackCooldown = 18;
+      this._decisionTimer = 10;
+    } else if (rand < 0.72 && this._attackCooldown <= 0) {
       input.lkJust = true;
       input.lk = true;
-      this._attackCooldown = 32;
-      this._decisionTimer = 15;
-    } else if (rand < 0.72 && this._attackCooldown <= 0) {
+      this._attackCooldown = 18;
+      this._decisionTimer = 10;
+    } else if (rand < 0.83 && this._attackCooldown <= 0) {
       input.rkJust = true;
       input.rk = true;
-      this._attackCooldown = 40;
-      this._decisionTimer = 20;
-    } else if (rand < 0.81) {
+      this._attackCooldown = 24;
+      this._decisionTimer = 12;
+    } else if (rand < 0.9) {
       // Retreat + block — left = backward = away from opponent
       input.left = true;
       this._heldInput.left = true;
       input.block = true;
       this._heldInput.block = true;
-      this._decisionTimer = 12;
-    } else if (rand < 0.95) {
+      this._decisionTimer = 10;
+    } else if (rand < 0.97) {
       // Sidestep to track opponent's Z position
       if (dz > 0) input.sideStepDown = true;
       else input.sideStepUp = true;
-      this._decisionTimer = 7;
+      this._decisionTimer = 6;
     } else {
       // Dash back to reset spacing — dashLeft = dashBack = away
       input.dashLeft = true;
