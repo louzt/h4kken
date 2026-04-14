@@ -118,6 +118,7 @@ export class Game {
   private _hitStopRenderFrames = 0;
   private static readonly HIT_STOP_LIGHT = 3; // ~50ms at 60fps
   private static readonly HIT_STOP_HEAVY = 5; // ~83ms at 60fps
+  private _lobbyPollInterval: ReturnType<typeof setInterval> | null = null;
 
   get inputDelayFrames(): number {
     return this._inputDelayFrames;
@@ -346,7 +347,7 @@ export class Game {
       console.log(`[SYNC] Rollback netcode active (RTT=${this.network.rtt}ms)`);
       // Create network overlay for online matches (F3 to toggle)
       this._netOverlay?.dispose();
-      this._netOverlay = new NetworkOverlay(this.network);
+      this._netOverlay = new NetworkOverlay(this.network, () => this.forfeit());
     } else {
       this.rollbackManager = null;
     }
@@ -364,14 +365,30 @@ export class Game {
     }
     this.network.joinMatch(name);
     this.state = GAME_STATE.WAITING;
+    this._startLobbyPoll();
   }
 
   cancelSearch() {
     this.network.leave();
+    this._stopLobbyPoll();
     this._netOverlay?.dispose();
     this._netOverlay = null;
     this.state = GAME_STATE.MENU;
     this.ui.showScreen('menu-screen');
+  }
+
+  /** Forfeit the current match (triggered from F3 overlay or similar). */
+  forfeit() {
+    if (this.state !== GAME_STATE.FIGHTING && this.state !== GAME_STATE.COUNTDOWN) return;
+    this.network.leave();
+    this._netOverlay?.dispose();
+    this._netOverlay = null;
+    this.rollbackManager = null;
+    this.bgm.stop();
+    this.state = GAME_STATE.MENU;
+    this.ui.hideAllScreens();
+    this.ui.showScreen('menu-screen');
+    this._mobileControls?.hide();
   }
 
   startPractice() {
@@ -385,6 +402,36 @@ export class Game {
     this.prepareMatch();
     this.round = 1;
     this.startPracticeCountdown();
+  }
+
+  // ── Lobby info polling ──────────────────────────────────────
+  // Fetches /health every 3s while matchmaking to show live player counts.
+
+  _startLobbyPoll(): void {
+    this._stopLobbyPoll();
+    const infoEl = document.getElementById('lobby-info');
+    const poll = async () => {
+      try {
+        const res = await fetch('/health');
+        const data = (await res.json()) as { connections: number; waiting: number; rooms: number };
+        if (infoEl) {
+          infoEl.textContent = `${data.connections} online · ${data.waiting} searching · ${data.rooms} matches`;
+        }
+      } catch {
+        if (infoEl) infoEl.textContent = '';
+      }
+    };
+    poll();
+    this._lobbyPollInterval = setInterval(poll, 3000);
+  }
+
+  _stopLobbyPoll(): void {
+    if (this._lobbyPollInterval) {
+      clearInterval(this._lobbyPollInterval);
+      this._lobbyPollInterval = null;
+    }
+    const infoEl = document.getElementById('lobby-info');
+    if (infoEl) infoEl.textContent = '';
   }
 
   async startPracticeCountdown() {
@@ -842,15 +889,42 @@ export class Game {
   // ============================================================
 
   onKO(winnerIdx: number) {
-    this.state = GAME_STATE.ROUND_END;
     const winner = this.fighters[winnerIdx];
     const loser = this.fighters[winnerIdx === 0 ? 1 : 0];
     if (!winner || !loser) return;
 
+    // In multiplayer, send our local result to the server and WAIT for the
+    // server's authoritative roundResult broadcast before applying visuals.
+    // This prevents the desync where both clients show different winners.
+    if (!this.isPractice) {
+      // Only send if we haven't already (state guards double-fire)
+      if (this.state === GAME_STATE.FIGHTING) {
+        this.state = GAME_STATE.ROUND_END;
+        const localWins0 = this.fighters[0]?.wins ?? 0;
+        const localWins1 = this.fighters[1]?.wins ?? 0;
+        // Predict wins for the message — server will use its own authoritative copy
+        const p1Wins = winnerIdx === 0 ? localWins0 + 1 : localWins0;
+        const p2Wins = winnerIdx === 1 ? localWins1 + 1 : localWins1;
+        const matchOver = (winnerIdx === 0 ? p1Wins : p2Wins) >= GC.ROUNDS_TO_WIN;
+        this.network.sendRoundResult(
+          winnerIdx,
+          p1Wins,
+          p2Wins,
+          matchOver,
+          'idle', // Server broadcasts the authoritative anims
+          'idle',
+        );
+      }
+      // Visuals are applied when the server's roundResult arrives (NetworkEvents.ts)
+      return;
+    }
+
+    // Practice mode — apply immediately (no server)
+    this.state = GAME_STATE.ROUND_END;
     winner.wins++;
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
-    const victoryAnim = winner.setVictory();
-    const defeatAnim = loser.setDefeat(undefined, matchOver);
+    winner.setVictory();
+    loser.setDefeat(undefined, matchOver);
 
     this.fightCamera.setDramaticAngle(winner.position);
     this.fightCamera.shake(0.3, 0.3);
@@ -864,42 +938,31 @@ export class Game {
       GC.ROUNDS_TO_WIN,
     );
 
-    // Both clients detect KO at the same sim frame — both send round result
-    if (!this.isPractice) {
-      this.network.sendRoundResult(
-        winnerIdx,
-        this.fighters[0]?.wins ?? 0,
-        this.fighters[1]?.wins ?? 0,
-        matchOver,
-        victoryAnim,
-        defeatAnim,
-      );
-    }
-
     if (matchOver) {
       setTimeout(() => this.onMatchEnd(winnerIdx), 2500);
-    } else if (this.isPractice) {
+    } else {
       this._nextRoundTimeout = setTimeout(() => this.startNextRound(), 3000);
     }
-    // In multiplayer the server drives the next countdown via 'countdown' events
   }
 
   onTimeUp() {
-    this.state = GAME_STATE.ROUND_END;
-
     const f1 = this.fighters[0];
     const f2 = this.fighters[1];
     if (!f1 || !f2) return;
-    let winnerIdx: number;
 
+    let winnerIdx: number;
     if (f1.health > f2.health) {
       winnerIdx = 0;
     } else if (f2.health > f1.health) {
       winnerIdx = 1;
     } else {
-      if (!this.isPractice) {
+      // Draw
+      if (!this.isPractice && this.state === GAME_STATE.FIGHTING) {
+        this.state = GAME_STATE.ROUND_END;
         this.network.sendRoundResult(-1, f1.wins, f2.wins, false, 'idle', 'idle');
+        return; // Wait for server authoritative broadcast
       }
+      this.state = GAME_STATE.ROUND_END;
       this.ui.showAnnouncement('DRAW', 'TIME UP', 2000);
       if (this.isPractice) {
         this._nextRoundTimeout = setTimeout(() => this.startNextRound(), 3000);
@@ -907,12 +970,26 @@ export class Game {
       return;
     }
 
+    // In multiplayer, defer to server's authoritative roundResult
+    if (!this.isPractice) {
+      if (this.state === GAME_STATE.FIGHTING) {
+        this.state = GAME_STATE.ROUND_END;
+        const p1Wins = winnerIdx === 0 ? f1.wins + 1 : f1.wins;
+        const p2Wins = winnerIdx === 1 ? f2.wins + 1 : f2.wins;
+        const matchOver = (winnerIdx === 0 ? p1Wins : p2Wins) >= GC.ROUNDS_TO_WIN;
+        this.network.sendRoundResult(winnerIdx, p1Wins, p2Wins, matchOver, 'idle', 'idle');
+      }
+      return;
+    }
+
+    // Practice mode — apply immediately
+    this.state = GAME_STATE.ROUND_END;
     const winner = winnerIdx === 0 ? f1 : f2;
     const loser = winnerIdx === 0 ? f2 : f1;
     winner.wins++;
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
-    const victoryAnim = winner.setVictory();
-    const defeatAnim = loser.setDefeat(undefined, matchOver);
+    winner.setVictory();
+    loser.setDefeat(undefined, matchOver);
 
     this.audio.play('announce_time', 0.63);
     this.ui.showAnnouncement('TIME UP', '', 2000);
@@ -922,23 +999,11 @@ export class Game {
       GC.ROUNDS_TO_WIN,
     );
 
-    if (!this.isPractice) {
-      this.network.sendRoundResult(
-        winnerIdx,
-        this.fighters[0]?.wins ?? 0,
-        this.fighters[1]?.wins ?? 0,
-        matchOver,
-        victoryAnim,
-        defeatAnim,
-      );
-    }
-
     if (matchOver) {
       setTimeout(() => this.onMatchEnd(winnerIdx), 2500);
-    } else if (this.isPractice) {
+    } else {
       this._nextRoundTimeout = setTimeout(() => this.startNextRound(), 3000);
     }
-    // In multiplayer the server drives the next countdown via 'countdown' events
   }
 
   onMatchEnd(winnerIdx: number) {
@@ -1019,7 +1084,12 @@ export class Game {
     this.effects.update();
 
     // Live network debug overlay (F3 toggle, only during online matches)
-    this._netOverlay?.update(this.rollbackManager, this.frame, this._inputDelayFrames);
+    this._netOverlay?.update(
+      this.rollbackManager,
+      this.frame,
+      this._inputDelayFrames,
+      this.engine.getFps(),
+    );
   }
 
   private _onResize() {

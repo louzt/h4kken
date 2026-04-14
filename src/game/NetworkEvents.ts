@@ -47,6 +47,7 @@ export function setupNetworkEvents(game: Game): void {
   });
 
   game.network.on('matched', (msg) => {
+    game._stopLobbyPoll();
     game.localPlayerIndex = msg.playerIndex;
     const myName = game.ui.playerNameInput?.value || 'Player';
     game.ui.setPlayerNames(myName, msg.opponentName);
@@ -89,35 +90,46 @@ export function setupNetworkEvents(game: Game): void {
     game.rollbackManager?.receiveRemoteInput(msg.targetFrame, msg.input, game._rollbackHost);
   });
 
-  // With delay-based sync both clients detect KO/time-up locally at the same
-  // frame, so by the time the server's confirmation arrives the state is already
-  // ROUND_END. This handler is a defensive fallback — it only fires if the
-  // local simulation somehow hasn't transitioned yet.
+  // ── Server-authoritative round result ──────────────────────
+  // In multiplayer, clients detect KO/time-up locally but do NOT apply
+  // the visual result. Instead they send their local result to the server
+  // and wait for this authoritative broadcast. This prevents the desync
+  // where both clients show different winners due to simulation divergence.
   game.network.on('roundResult', (msg) => {
-    if (game.state === GAME_STATE.FIGHTING) {
-      game.state = GAME_STATE.ROUND_END;
-      const winnerIdx = msg.winner;
-      if (winnerIdx >= 0 && winnerIdx < 2) {
-        const winner = game.fighters[winnerIdx];
-        const loser = game.fighters[winnerIdx === 0 ? 1 : 0];
-        if (!winner || !loser) return;
-        winner.wins = winnerIdx === 0 ? msg.p1Wins : msg.p2Wins;
-        loser.wins = winnerIdx === 0 ? msg.p2Wins : msg.p1Wins;
-        winner.setVictory(msg.victoryAnim);
-        loser.setDefeat(msg.defeatAnim);
-        game.fightCamera.setDramaticAngle(winner.position);
-        game.fightCamera.shake(0.3, 0.3);
-        game.audio.play('ko_bell', 0.9);
-        game.ui.showAnnouncement('K.O.', '', 2000, 'ko');
-        game.ui.updateWins(
-          game.fighters[game.localPlayerIndex]?.wins ?? 0,
-          game.fighters[1 - game.localPlayerIndex]?.wins ?? 0,
-          GC.ROUNDS_TO_WIN,
-        );
-      }
-      if (msg.matchOver && winnerIdx >= 0) {
-        setTimeout(() => game.onMatchEnd(winnerIdx), 2500);
-      }
+    // Accept in FIGHTING (fallback) or ROUND_END (normal authoritative path)
+    if (game.state !== GAME_STATE.FIGHTING && game.state !== GAME_STATE.ROUND_END) return;
+
+    game.state = GAME_STATE.ROUND_END;
+    const winnerIdx = msg.winner;
+
+    if (winnerIdx >= 0 && winnerIdx < 2) {
+      const winner = game.fighters[winnerIdx];
+      const loser = game.fighters[winnerIdx === 0 ? 1 : 0];
+      if (!winner || !loser) return;
+
+      // Apply server-authoritative win counts
+      winner.wins = winnerIdx === 0 ? msg.p1Wins : msg.p2Wins;
+      loser.wins = winnerIdx === 0 ? msg.p2Wins : msg.p1Wins;
+
+      winner.setVictory(msg.victoryAnim);
+      loser.setDefeat(msg.defeatAnim, msg.matchOver);
+
+      game.fightCamera.setDramaticAngle(winner.position);
+      game.fightCamera.shake(0.3, 0.3);
+      game.audio.play('ko_bell', 0.9);
+      game.ui.showAnnouncement('K.O.', '', 2000, 'ko');
+      game.ui.updateWins(
+        game.fighters[game.localPlayerIndex]?.wins ?? 0,
+        game.fighters[1 - game.localPlayerIndex]?.wins ?? 0,
+        GC.ROUNDS_TO_WIN,
+      );
+    } else {
+      // Draw (winnerIdx === -1)
+      game.ui.showAnnouncement('DRAW', 'TIME UP', 2000);
+    }
+
+    if (msg.matchOver && winnerIdx >= 0) {
+      setTimeout(() => game.onMatchEnd(winnerIdx), 2500);
     }
   });
 
