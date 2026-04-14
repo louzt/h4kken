@@ -140,6 +140,8 @@ export function setupNetworkEvents(game: Game): void {
       game.ui.hideFightHud();
       game.ui.hideAnnouncement();
       game._mobileControls?.hide();
+      game._netOverlay?.dispose();
+      game._netOverlay = null;
     }, 3000);
   });
 
@@ -152,6 +154,8 @@ export function setupNetworkEvents(game: Game): void {
         game.ui.showScreen('menu-screen');
         game.ui.hideFightHud();
         game._mobileControls?.hide();
+        game._netOverlay?.dispose();
+        game._netOverlay = null;
       }, 3000);
     }
   });

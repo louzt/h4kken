@@ -1,3 +1,21 @@
+// ============================================================
+// H4KKEN - Rollback Manager (GGPO-style)
+// ============================================================
+// Implements speculative execution with rollback correction for P2P fighting game netcode.
+//
+// Architecture: save snapshot → advance with predicted input → when real input arrives,
+// if mispredicted: restore snapshot, replay with corrected inputs, suppress side effects.
+//
+// DETERMINISM: This module assumes the host's runSimStep() is fully deterministic.
+// Same inputs on the same frame MUST produce identical state on both clients.
+// See Game.ts _runSimulationStep() for the determinism contract.
+//
+// [Ref: GGPO] Core architecture from Tony Cannon's GGPO SDK (MIT)
+// [Ref: AOE] "Determinism is the hardest bug" — snapshot/restore catches drift
+// [Ref: OSAKA] Validates repeat-last prediction: >70% accuracy at 1-3 frame windows
+// [Ref: TAXONOMY] Combines Prediction + TimeWarp from Claypool's classification
+// ============================================================
+
 import type { FighterSnapshot } from '../fighter/Fighter';
 import type { InputState } from '../Input';
 
@@ -19,6 +37,9 @@ export interface RollbackHost {
 }
 
 // 30 frames ≈ 500ms at 60fps — handles VPN/high-latency play (avg lag ~17f) with ~12f headroom
+// [Ref: GGPO] Core rollback architecture: save state → predict → advance → on mismatch, rewind + replay
+// [Ref: AOE] "Determinism is the hardest bug" — sim path must be fully deterministic
+// [Ref: OSAKA] Ishioka validates repeat-last prediction: >70% accuracy at 1-3 frame windows
 const MAX_ROLLBACK = 30;
 
 export interface RollbackDiag {

@@ -44,6 +44,16 @@ export class EffectsManager {
     this._blockMat.diffuseColor = new Color3(0.267, 0.533, 1);
     this._blockMat.emissiveColor = new Color3(0.267, 0.533, 1);
     this._blockMat.alpha = 1;
+
+    // Pre-warm the spark pool — avoids mesh allocation stutter during the
+    // first few hits of a match. 24 covers two simultaneous hit sparkbursts
+    // (8 sparks each) + one block spark (4). Meshes are created once and
+    // recycled for the entire match duration.
+    for (let i = 0; i < 24; i++) {
+      const spark = this._sparkGeo.clone(`spark_pool_${i}`);
+      spark.setEnabled(false);
+      this._sparkPool.push(spark);
+    }
   }
 
   private _getPooledSpark(mat: StandardMaterial): Mesh {
