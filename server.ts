@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,53 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 // In production __dirname = dist/, so client assets are in dist/client/
 app.use(express.static(path.join(__dirname, 'client')));
+
+// ── Health endpoint — used by nginx/PM2/monitoring ──────────────
+const startTime = Date.now();
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: Math.floor((Date.now() - startTime) / 1000),
+    rooms: rooms.size,
+    waiting: waitingPlayers.length,
+    connections: wss.clients.size,
+  });
+});
+
+// ── TURN credentials endpoint (time-limited HMAC) ──────────────
+// Returns ephemeral credentials for coturn (RFC 5389 long-term auth).
+// Clients call this before creating a PeerConnection.
+const TURN_SECRET = process.env.TURN_SECRET || '';
+const TURN_REALM = process.env.TURN_REALM || '';
+const TURN_PORT = process.env.TURN_PORT || '3478';
+const TURN_TLS_PORT = process.env.TURN_TLS_PORT || '5349';
+
+app.get('/api/turn-credentials', (_req, res) => {
+  if (!TURN_SECRET || !TURN_REALM) {
+    // No TURN configured — clients will rely on STUN only
+    res.json({ iceServers: [] });
+    return;
+  }
+  // Credential valid for 24 hours (coturn default)
+  const ttl = 86400;
+  const expiry = Math.floor(Date.now() / 1000) + ttl;
+  const username = `${expiry}:h4kken`;
+  const credential = crypto.createHmac('sha1', TURN_SECRET).update(username).digest('base64');
+
+  res.json({
+    iceServers: [
+      {
+        urls: [
+          `turn:${TURN_REALM}:${TURN_PORT}?transport=udp`,
+          `turn:${TURN_REALM}:${TURN_PORT}?transport=tcp`,
+          `turns:${TURN_REALM}:${TURN_TLS_PORT}?transport=tcp`,
+        ],
+        username,
+        credential,
+      },
+    ],
+  });
+});
 
 app.post('/api/debug', (req, res) => {
   const lines = req.body.lines || [];
@@ -48,6 +96,11 @@ interface ClientMessage {
   defeatAnim?: string;
   playerIndex?: number;
   t?: number;
+  // WebRTC signaling fields — server relays these between matched players
+  // without processing them. SDP contains session descriptions for the
+  // peer connection; candidate contains ICE candidates for NAT traversal.
+  sdp?: string;
+  candidate?: string;
 }
 
 interface Room {
@@ -255,6 +308,24 @@ function handleLeave(playerInfo: PlayerInfo) {
   if (waitIdx >= 0) waitingPlayers.splice(waitIdx, 1);
 }
 
+// WebRTC signaling relay — forwards SDP offers/answers and ICE candidates
+// between matched players. The server never inspects the contents; it's a
+// pure relay so the two clients can negotiate a direct peer-to-peer
+// DataChannel (UDP) for lower-latency input sync.
+// [Ref: RFC8831] Signaling is out-of-band; we reuse the existing WS connection
+// [Ref: EDGEGAP] If direct P2P fails, TURN relay still beats TCP for game inputs
+function handleSignalingRelay(playerInfo: PlayerInfo, msg: ClientMessage) {
+  if (!playerInfo.roomId) return;
+  const room = rooms.get(playerInfo.roomId);
+  if (!room) return;
+
+  const opponentIdx = playerInfo.playerIndex === 0 ? 1 : 0;
+  const opponent = room.players[opponentIdx];
+  if (!opponent?.ws || opponent.ws.readyState !== 1) return;
+
+  sendTo(opponent, { type: msg.type, sdp: msg.sdp, candidate: msg.candidate });
+}
+
 function handleClose(playerInfo: PlayerInfo) {
   const waitIdx = waitingPlayers.indexOf(playerInfo);
   if (waitIdx >= 0) waitingPlayers.splice(waitIdx, 1);
@@ -308,6 +379,12 @@ wss.on('connection', (ws, req) => {
       case 'leave':
         handleLeave(playerInfo);
         break;
+      // WebRTC signaling: relay SDP and ICE candidates between matched peers
+      case 'rtc-offer':
+      case 'rtc-answer':
+      case 'rtc-ice':
+        handleSignalingRelay(playerInfo, msg);
+        break;
     }
   });
 
@@ -321,5 +398,25 @@ server.listen(PORT, () => {
   console.log(`  ██╔══██║╚════██║██╔═██╗ ██╔═██╗ ██╔══╝  ██║╚██╗██║`);
   console.log(`  ██║  ██║     ██║██║  ██╗██║  ██╗███████╗██║ ╚████║`);
   console.log(`  ╚═╝  ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝`);
-  console.log(`\n  Server running on http://localhost:${PORT}\n`);
+  console.log(`\n  Server running on http://localhost:${PORT}`);
+  if (TURN_SECRET) console.log(`  TURN relay: ${TURN_REALM}:${TURN_PORT}`);
+  else console.log('  TURN: disabled (set TURN_SECRET to enable)');
+  console.log();
 });
+
+// ── Graceful shutdown ───────────────────────────────────────────
+// Close WebSocket connections cleanly so PM2/systemd can restart
+// without clients seeing abrupt disconnects.
+function shutdown(signal: string) {
+  console.log(`\n  [${signal}] Shutting down...`);
+  // Stop accepting new connections
+  server.close();
+  // Close all WebSocket connections with "going away" code
+  for (const client of wss.clients) {
+    client.close(1001, 'Server shutting down');
+  }
+  // Give in-flight messages 2s to flush, then force exit
+  setTimeout(() => process.exit(0), 2000);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
