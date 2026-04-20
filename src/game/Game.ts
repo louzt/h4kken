@@ -22,6 +22,7 @@ import {
 } from '@babylonjs/core';
 import { AudioManager, BgmManager } from '../Audio';
 import { FightCamera } from '../Camera';
+import { CharSelect } from '../CharSelect';
 import { CombatSystem } from '../combat/CombatSystem';
 import { GAME_CONSTANTS } from '../constants';
 import { CHARACTERS, DEFAULT_P1, DEFAULT_P2 } from '../fighter/characters';
@@ -42,6 +43,7 @@ const GC = GAME_CONSTANTS;
 const GAME_STATE = {
   LOADING: 'loading',
   MENU: 'menu',
+  CHAR_SELECT: 'charSelect',
   WAITING: 'waiting',
   COUNTDOWN: 'countdown',
   FIGHTING: 'fighting',
@@ -63,8 +65,10 @@ export class Game {
   network: Network;
   fighters: [Fighter | null, Fighter | null];
   localPlayerIndex: number;
-  sharedAssets: SharedAssets | null;
-  p2Assets: SharedAssets | null = null;
+  allCharAssets: Map<string, SharedAssets>;
+  charSelect: CharSelect | null = null;
+  _pendingMode: 'practice' | 'online' = 'practice';
+  _pendingCharId: string = DEFAULT_P1;
   round: number;
   roundTimer: number;
   roundTimerAccum: number;
@@ -168,7 +172,7 @@ export class Game {
 
     this.fighters = [null, null];
     this.localPlayerIndex = 0;
-    this.sharedAssets = null;
+    this.allCharAssets = new Map<string, SharedAssets>();
 
     this.round = 1;
     this.roundTimer = GC.ROUND_TIME;
@@ -205,11 +209,11 @@ export class Game {
   setupUIEvents() {
     this.ui.btnFindMatch?.addEventListener('click', () => {
       if (isTouchDevice()) requestLandscapeFullscreen();
-      this.findMatch();
+      this.startCharSelect('online');
     });
     this.ui.btnPractice?.addEventListener('click', () => {
       if (isTouchDevice()) requestLandscapeFullscreen();
-      this.startPractice();
+      this.startCharSelect('practice');
     });
     this.ui.btnControls?.addEventListener('click', () => this.ui.showScreen('controls-screen'));
     this.ui.btnBackControls?.addEventListener('click', () => this.ui.showScreen('menu-screen'));
@@ -221,24 +225,22 @@ export class Game {
 
     this.stage = new Stage(this.scene);
 
-    const p1 = CHARACTERS[DEFAULT_P1];
-    const p2 = CHARACTERS[DEFAULT_P2];
-    if (!p1 || !p2) throw new Error(`Missing character registry for ${DEFAULT_P1}/${DEFAULT_P2}`);
-
-    this.sharedAssets = await Fighter.loadAssets(this.scene, p1.id, (progress: number) => {
-      this.ui.setLoadingProgress(progress * 0.5);
-    });
-    this.sharedAssets.scale = p1.scale;
-
-    this.p2Assets = await Fighter.loadAssets(this.scene, p2.id, (progress: number) => {
-      this.ui.setLoadingProgress(0.5 + progress * 0.5);
-    });
-    this.p2Assets.scale = p2.scale;
+    const charEntries = Object.values(CHARACTERS);
+    let loaded = 0;
+    for (const meta of charEntries) {
+      const assets = await Fighter.loadAssets(this.scene, meta.id, (p: number) => {
+        this.ui.setLoadingProgress((loaded + p) / charEntries.length);
+      });
+      assets.scale = meta.scale;
+      this.allCharAssets.set(meta.id, assets);
+      loaded++;
+    }
 
     await this.audio.load(this.scene);
     // Not awaited — MP3 decoding is slow on mobile; menu shows while tracks load.
     this.bgm.load(this.scene);
 
+    this.charSelect = new CharSelect(this.scene, this.camera, this.allCharAssets);
     this.createFighters();
 
     this.ui.setLoadingProgress(1);
@@ -266,26 +268,66 @@ export class Game {
   }
 
   createFighters() {
-    if (!this.sharedAssets || !this.p2Assets) throw new Error('SharedAssets not loaded');
+    this.reinitFighter(0, DEFAULT_P1);
+    this.reinitFighter(1, DEFAULT_P2);
+  }
 
-    this.fighters[0] = new Fighter(0, this.scene);
-    this.fighters[0].init(this.sharedAssets);
-
-    this.fighters[1] = new Fighter(1, this.scene);
-    this.fighters[1].init(this.p2Assets);
-
-    // BGM is now driven by polling in _updateHud rather than events,
-    // so onSuperDeactivate is not needed for BGM purposes.
-
-    // Register fighter meshes as shadow casters so they cast onto the arena floor
+  reinitFighter(idx: 0 | 1, charId: string) {
+    const assets = this.allCharAssets.get(charId) ?? this.allCharAssets.get(DEFAULT_P1);
+    if (!assets) return;
+    this.fighters[idx]?.dispose();
+    const fighter = new Fighter(idx, this.scene);
+    fighter.init(assets);
+    this.fighters[idx] = fighter;
     const shadowGen = this.stage?.shadowGenerator;
     if (shadowGen) {
-      for (const fighter of this.fighters) {
-        if (!fighter) continue;
-        for (const mesh of fighter.meshes) {
-          shadowGen.addShadowCaster(mesh, true);
-        }
+      for (const mesh of fighter.meshes) shadowGen.addShadowCaster(mesh, true);
+    }
+  }
+
+  startCharSelect(mode: 'practice' | 'online') {
+    this.state = GAME_STATE.CHAR_SELECT;
+    this._pendingMode = mode;
+    for (const f of this.fighters) f?.rootNode?.setEnabled(false);
+    this.ui.hideAllScreens();
+
+    if (mode === 'online') {
+      if (!this.network.connected) {
+        this.ui.showAnnouncement('NOT CONNECTED', 'Server unavailable', 2000);
+        this.state = GAME_STATE.MENU;
+        this.ui.showScreen('menu-screen');
+        return;
       }
+      this._pendingCharId = DEFAULT_P1;
+      const name = this.ui.playerNameInput?.value || 'Player';
+      this.network.joinMatch(name, this._pendingCharId);
+    }
+
+    this.charSelect?.show(mode, {
+      onConfirm: (p1Id, p2Id) => this._onCharSelectConfirm(p1Id, p2Id),
+      onPick: (charId) => {
+        this._pendingCharId = charId;
+        this.network.sendPick(charId);
+      },
+      onReady: () => {
+        this.network.sendReady();
+      },
+      onBack: () => {
+        if (mode === 'online') this.network.leave();
+        this.charSelect?.hide();
+        for (const f of this.fighters) f?.rootNode?.setEnabled(true);
+        this.state = GAME_STATE.MENU;
+        this.ui.showScreen('menu-screen');
+      },
+    });
+  }
+
+  private _onCharSelectConfirm(p1Id: string, p2Id: string) {
+    this.charSelect?.hide();
+    if (this._pendingMode === 'practice') {
+      this.reinitFighter(0, p1Id);
+      this.reinitFighter(1, p2Id);
+      this.startPractice();
     }
   }
 
@@ -325,18 +367,19 @@ export class Game {
     this.state = GAME_STATE.COUNTDOWN;
   }
 
-  findMatch() {
+  findMatch(characterId: string) {
     const name = this.ui.playerNameInput?.value || 'Player';
     if (!this.network.connected) {
       this.ui.showAnnouncement('NOT CONNECTED', 'Server unavailable', 2000);
       return;
     }
-    this.network.joinMatch(name);
+    this.network.joinMatch(name, characterId);
     this.state = GAME_STATE.WAITING;
   }
 
   cancelSearch() {
     this.network.leave();
+    for (const f of this.fighters) f?.rootNode?.setEnabled(true);
     this.state = GAME_STATE.MENU;
     this.ui.showScreen('menu-screen');
   }
@@ -879,18 +922,19 @@ export class Game {
   // ============================================================
 
   render(deltaTime: number) {
-    const f1 = this.fighters[0];
-    const f2 = this.fighters[1];
+    if (this.state !== GAME_STATE.CHAR_SELECT) {
+      const f1 = this.fighters[0];
+      const f2 = this.fighters[1];
 
-    if (f1) f1.updateVisuals();
-    if (f2) f2.updateVisuals();
+      if (f1) f1.updateVisuals();
+      if (f2) f2.updateVisuals();
 
-    if (f1 && f2) {
-      this.fightCamera.update(f1.position, f2.position, deltaTime, this.localPlayerIndex);
+      if (f1 && f2) {
+        this.fightCamera.update(f1.position, f2.position, deltaTime, this.localPlayerIndex);
+      }
     }
 
     if (this.stage) this.stage.update(deltaTime);
-
     this.effects.update();
   }
 

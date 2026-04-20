@@ -29,6 +29,7 @@ app.post('/api/debug', (req, res) => {
 interface PlayerInfo {
   ws: import('ws').WebSocket;
   name: string;
+  characterId: string;
   roomId: string | null;
   playerIndex: number | null;
 }
@@ -36,6 +37,7 @@ interface PlayerInfo {
 interface ClientMessage {
   type: string;
   name?: string;
+  characterId?: string;
   frame?: number;
   targetFrame?: number;
   input?: unknown;
@@ -53,10 +55,11 @@ interface ClientMessage {
 interface Room {
   id: string;
   players: [PlayerInfo, PlayerInfo];
-  state: 'countdown' | 'fighting' | 'roundEnd' | 'matchEnd';
+  state: 'lobby' | 'countdown' | 'fighting' | 'roundEnd' | 'matchEnd';
   countdownTimer: ReturnType<typeof setTimeout> | null;
   pendingRoundResults: [ClientMessage | null, ClientMessage | null];
   roundResultTimeout: ReturnType<typeof setTimeout> | null;
+  lobbyReady: [boolean, boolean];
 }
 
 const waitingPlayers: PlayerInfo[] = [];
@@ -72,10 +75,11 @@ function createRoom(player1: PlayerInfo, player2: PlayerInfo): Room {
   const room: Room = {
     id: roomId,
     players: [player1, player2],
-    state: 'countdown',
+    state: 'lobby',
     countdownTimer: null,
     pendingRoundResults: [null, null],
     roundResultTimeout: null,
+    lobbyReady: [false, false],
   };
   rooms.set(roomId, room);
   player1.roomId = roomId;
@@ -135,8 +139,14 @@ function startCountdown(room: Room) {
   tick();
 }
 
-function handleJoin(ws: import('ws').WebSocket, playerInfo: PlayerInfo, name: string | undefined) {
+function handleJoin(
+  ws: import('ws').WebSocket,
+  playerInfo: PlayerInfo,
+  name: string | undefined,
+  characterId: string | undefined,
+) {
   playerInfo.name = name || 'Player';
+  playerInfo.characterId = characterId || 'beano';
 
   if (playerInfo.roomId) {
     sendTo(playerInfo, { type: 'error', message: 'Already in a match' });
@@ -150,22 +160,64 @@ function handleJoin(ws: import('ws').WebSocket, playerInfo: PlayerInfo, name: st
     const room = createRoom(opponent, playerInfo);
 
     sendTo(opponent, {
-      type: 'matched',
+      type: 'lobbyMatched',
       playerIndex: 0,
       opponentName: playerInfo.name,
+      opponentCharacterId: playerInfo.characterId,
       roomId: room.id,
     });
     sendTo(playerInfo, {
-      type: 'matched',
+      type: 'lobbyMatched',
       playerIndex: 1,
       opponentName: opponent.name,
+      opponentCharacterId: opponent.characterId,
       roomId: room.id,
     });
-
-    setTimeout(() => startCountdown(room), 1000);
   } else {
     waitingPlayers.push(playerInfo);
     sendTo(playerInfo, { type: 'waiting' });
+  }
+}
+
+function handlePick(playerInfo: PlayerInfo, characterId: string | undefined) {
+  if (!characterId) return;
+  playerInfo.characterId = characterId;
+  if (!playerInfo.roomId) return;
+  const room = rooms.get(playerInfo.roomId);
+  if (!room || room.state !== 'lobby') return;
+  const idx = playerInfo.playerIndex ?? -1;
+  if (idx < 0 || idx > 1) return;
+  const opponentIdx = idx === 0 ? 1 : 0;
+  sendTo(room.players[opponentIdx], { type: 'opponentPick', characterId });
+}
+
+function handleReady(playerInfo: PlayerInfo) {
+  if (!playerInfo.roomId) return;
+  const room = rooms.get(playerInfo.roomId);
+  if (!room || room.state !== 'lobby') return;
+  const idx = playerInfo.playerIndex ?? -1;
+  if (idx < 0 || idx > 1) return;
+  room.lobbyReady[idx] = true;
+  const opponentIdx = idx === 0 ? 1 : 0;
+  sendTo(room.players[opponentIdx], { type: 'opponentReady' });
+  if (room.lobbyReady[0] && room.lobbyReady[1]) {
+    const p0 = room.players[0];
+    const p1 = room.players[1];
+    sendTo(p0, {
+      type: 'matched',
+      playerIndex: 0,
+      opponentName: p1.name,
+      roomId: room.id,
+      opponentCharacterId: p1.characterId,
+    });
+    sendTo(p1, {
+      type: 'matched',
+      playerIndex: 1,
+      opponentName: p0.name,
+      roomId: room.id,
+      opponentCharacterId: p0.characterId,
+    });
+    setTimeout(() => startCountdown(room), 1000);
   }
 }
 
@@ -277,6 +329,7 @@ wss.on('connection', (ws, req) => {
   const playerInfo: PlayerInfo = {
     ws,
     name: 'Player',
+    characterId: 'beano',
     roomId: null,
     playerIndex: null,
   };
@@ -297,7 +350,13 @@ wss.on('connection', (ws, req) => {
 
     switch (msg.type) {
       case 'join':
-        handleJoin(ws, playerInfo, msg.name);
+        handleJoin(ws, playerInfo, msg.name, msg.characterId);
+        break;
+      case 'pick':
+        handlePick(playerInfo, msg.characterId);
+        break;
+      case 'ready':
+        handleReady(playerInfo);
         break;
       case 'roundResult':
         handleSyncRoundResult(playerInfo, msg);

@@ -46,4 +46,3 @@ export const UAL_TO_MIXAMO_BONE_MAP = new Map<string, string>([
   ['foot_r', 'mixamorig:RightFoot'],
   ['ball_r', 'mixamorig:RightToeBase'],
 ]);
-

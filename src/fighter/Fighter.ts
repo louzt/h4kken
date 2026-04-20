@@ -157,6 +157,7 @@ export class Fighter {
   _introActive = false;
   _introTimeout: ReturnType<typeof setTimeout> | null = null;
   private _composite!: CompositeAnimController;
+  private _skeleton: Skeleton | null = null;
 
   constructor(playerIndex: number, scene: Scene) {
     this.playerIndex = playerIndex;
@@ -309,6 +310,7 @@ export class Fighter {
     const clonedSkeleton = baseSkeleton
       ? baseSkeleton.clone(`skeleton_f${this.playerIndex}`, `skel_${this.playerIndex}`)
       : null;
+    this._skeleton = clonedSkeleton;
 
     if (clonedSkeleton) {
       // Unlink cloned bones from the base TransformNodes. The retargeted
@@ -350,6 +352,32 @@ export class Fighter {
 
     this._initSuperEffects();
     this.playAnimation('combatIdle');
+  }
+
+  dispose() {
+    if (this._introTimeout !== null) {
+      clearTimeout(this._introTimeout);
+      this._introTimeout = null;
+    }
+    this._destroySuperEffects();
+    this._highlightLayer?.dispose();
+    this._highlightLayer = null;
+    this._superParticles?.dispose();
+    this._superParticles = null;
+    this._superCoreParticles?.dispose();
+    this._superCoreParticles = null;
+    for (const ag of Object.values(this.animGroups)) {
+      ag.stop();
+      ag.dispose();
+    }
+    this.animGroups = {};
+    this.currentAnimGroup = null;
+    for (const mesh of this.meshes) mesh.dispose();
+    this.meshes = [];
+    this.rootNode?.dispose();
+    this.rootNode = null;
+    this._skeleton?.dispose();
+    this._skeleton = null;
   }
 
   private _cloneAnimGroups(

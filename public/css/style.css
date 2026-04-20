@@ -1036,3 +1036,237 @@ html, body {
   .menu-buttons { gap: 0.5rem; }
   .menu-btn, .menu-input { padding: 0.55rem 2rem; font-size: 0.8rem; width: 260px; }
 }
+
+/* ============================================================
+   Character Selection Screen
+   ============================================================ */
+
+#char-select-screen.screen {
+  background: none;
+  flex-direction: column;
+  justify-content: stretch;
+  align-items: stretch;
+}
+
+.cs-layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.cs-p2-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.cs-opp-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  border: 1px solid rgba(255, 51, 102, 0.35);
+  background: rgba(255, 51, 102, 0.08);
+}
+
+.cs-opp-label {
+  font-family: var(--font-main);
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.cs-opp-char {
+  font-family: var(--font-main);
+  font-size: 1.4rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  color: var(--p2-color);
+  text-shadow: 0 0 14px rgba(255, 51, 102, 0.35);
+}
+
+.cs-opp-ready {
+  font-family: var(--font-main);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #5f5;
+  text-shadow: 0 0 12px rgba(85, 255, 85, 0.5);
+  animation: cs-vs-pulse 1.2s ease-in-out infinite;
+}
+
+.cs-opp-waiting {
+  font-family: var(--font-main);
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.5);
+  animation: cs-blink 1.4s ease-in-out infinite;
+}
+
+.cs-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cs-confirm-btn:disabled {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.cs-panel {
+  width: 20%;
+  min-width: 180px;
+  max-width: 260px;
+  background: rgba(8, 8, 18, 0.92);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 14px 14px;
+  border-top: 3px solid transparent;
+}
+
+.cs-p1 { border-top-color: var(--p1-color); }
+.cs-p2 { border-top-color: var(--p2-color); }
+
+.cs-panel-label {
+  font-family: var(--font-main);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.cs-char-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.cs-card {
+  padding: 14px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  text-align: center;
+}
+
+.cs-card:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.cs-p1 .cs-card.selected {
+  border-color: var(--p1-color);
+  background: rgba(0, 200, 255, 0.12);
+  box-shadow: 0 0 14px rgba(0, 200, 255, 0.25);
+}
+
+.cs-p2 .cs-card.selected {
+  border-color: var(--p2-color);
+  background: rgba(255, 51, 102, 0.12);
+  box-shadow: 0 0 14px rgba(255, 51, 102, 0.25);
+}
+
+.cs-card-name {
+  font-family: var(--font-main);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text);
+}
+
+.cs-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.cs-vs {
+  font-family: var(--font-main);
+  font-size: 3.5rem;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.12);
+  text-shadow: 0 0 60px rgba(255, 255, 255, 0.08);
+  animation: cs-vs-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes cs-vs-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+.cs-waiting {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: var(--font-main);
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.35);
+  line-height: 1.8;
+  animation: cs-blink 1.4s ease-in-out infinite;
+}
+
+@keyframes cs-blink {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.7; }
+}
+
+.cs-footer {
+  height: 72px;
+  background: rgba(8, 8, 18, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  flex-shrink: 0;
+}
+
+.cs-btn {
+  font-family: var(--font-main);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 12px 32px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.cs-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.cs-confirm-btn {
+  background: rgba(0, 200, 255, 0.12);
+  border-color: var(--p1-color);
+  color: var(--p1-color);
+}
+
+.cs-confirm-btn:hover {
+  background: rgba(0, 200, 255, 0.25);
+}
+
+@media (max-width: 600px) {
+  .cs-panel { width: 35%; min-width: 130px; padding: 12px 8px; }
+  .cs-card { padding: 10px 6px; }
+  .cs-card-name { font-size: 0.8rem; }
+  .cs-vs { font-size: 2rem; }
+  .cs-footer { padding: 0 16px; height: 60px; }
+  .cs-btn { padding: 8px 16px; font-size: 0.7rem; }
+}

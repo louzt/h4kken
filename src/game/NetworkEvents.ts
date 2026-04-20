@@ -5,6 +5,7 @@
 // ============================================================
 
 import { GAME_CONSTANTS } from '../constants';
+import { DEFAULT_P1 } from '../fighter/characters';
 import type { Game } from './Game';
 
 const GC = GAME_CONSTANTS;
@@ -13,6 +14,7 @@ const GC = GAME_CONSTANTS;
 const GAME_STATE = {
   LOADING: 'loading',
   MENU: 'menu',
+  CHAR_SELECT: 'charSelect',
   WAITING: 'waiting',
   COUNTDOWN: 'countdown',
   FIGHTING: 'fighting',
@@ -43,11 +45,33 @@ function handleCountdownStart(game: Game): void {
 
 export function setupNetworkEvents(game: Game): void {
   game.network.on('waiting', () => {
+    if (game.state === GAME_STATE.CHAR_SELECT) return;
     game.ui.showScreen('waiting-screen');
+  });
+
+  game.network.on('lobbyMatched', (msg) => {
+    if (game.state !== GAME_STATE.CHAR_SELECT) return;
+    game.localPlayerIndex = msg.playerIndex;
+    game.charSelect?.setOpponent(msg.opponentName, msg.opponentCharacterId);
+  });
+
+  game.network.on('opponentPick', (msg) => {
+    if (game.state !== GAME_STATE.CHAR_SELECT) return;
+    game.charSelect?.updateOpponentPick(msg.characterId);
+  });
+
+  game.network.on('opponentReady', () => {
+    if (game.state !== GAME_STATE.CHAR_SELECT) return;
+    game.charSelect?.setOpponentReady();
   });
 
   game.network.on('matched', (msg) => {
     game.localPlayerIndex = msg.playerIndex;
+    const localIdx = game.localPlayerIndex as 0 | 1;
+    const opponentIdx = (1 - localIdx) as 0 | 1;
+    game.charSelect?.hide();
+    game.reinitFighter(localIdx, game._pendingCharId);
+    game.reinitFighter(opponentIdx, msg.opponentCharacterId ?? DEFAULT_P1);
     const myName = game.ui.playerNameInput?.value || 'Player';
     game.ui.setPlayerNames(myName, msg.opponentName);
     game.ui.hideAllScreens();
@@ -132,6 +156,12 @@ export function setupNetworkEvents(game: Game): void {
   });
 
   game.network.on('opponentLeft', () => {
+    if (game.state === GAME_STATE.CHAR_SELECT) {
+      game.charSelect?.clearOpponent();
+      const name = game.ui.playerNameInput?.value || 'Player';
+      game.network.joinMatch(name, game._pendingCharId);
+      return;
+    }
     game.stopBGM();
     game.ui.showAnnouncement('OPPONENT LEFT', '', 3000);
     setTimeout(() => {
@@ -145,6 +175,10 @@ export function setupNetworkEvents(game: Game): void {
 
   game.network.on('disconnected', () => {
     if (game.state !== GAME_STATE.MENU && game.state !== GAME_STATE.LOADING) {
+      if (game.state === GAME_STATE.CHAR_SELECT) {
+        game.charSelect?.hide();
+        for (const f of game.fighters) f?.rootNode?.setEnabled(true);
+      }
       game.stopBGM();
       game.ui.showAnnouncement('DISCONNECTED', '', 3000);
       setTimeout(() => {

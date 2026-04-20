@@ -15,6 +15,8 @@ interface CharacterMeta {
   scale?: number;
   /** Path to a UI thumbnail (future character-select screen) */
   thumbnail?: string;
+  /** Animation cycle shown in the character selection screen */
+  selectAnims?: readonly string[];
 }
 
 export const CHARACTERS: Record<string, CharacterMeta> = {
@@ -27,6 +29,7 @@ export const CHARACTERS: Record<string, CharacterMeta> = {
     id: 'mita',
     name: 'Mita',
     scale: 0.85,
+    selectAnims: ['introSpellIdle', 'victoryYes'],
   },
 };
 

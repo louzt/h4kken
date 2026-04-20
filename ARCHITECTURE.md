@@ -68,22 +68,20 @@ src/
 
 ## GLB / character pipeline
 
-### Asset files
-Both are **Quaternius Universal Animation Library (CC0)** and safe to git-track publicly.
+### Asset file
+- `public/assets/models/beano-character.glb` — Beano character mesh + Mixamo 41-bone skeleton + **261 animation clips** (UAL1 + UAL2, retargeted from Quaternius rig to Mixamo rig via Blender 5 headless).
 
-- `public/assets/models/character.glb` — UAL1: character mesh (`Mannequin` + `Icosphere`) + skeleton + 46 animation clips
-- `public/assets/models/UAL2.glb` — UAL2: **animation-only** (same 65-bone rig), 21 extra clips (walk backwards, air juggle hits, kip-up, hook/uppercut/knee, victory variants, etc.)
+The Blender retargeting script lives at `/tmp/retarget_combined.py` and maps Quaternius bone names to their Mixamo equivalents (pelvis→Hips, spine_01→Spine, etc.).
 
 ### Loading (one-time, shared)
-`Fighter.loadAssets(scene)` loads both GLBs **in parallel** via `SceneLoader.ImportMeshAsync`.  
-UAL2 meshes are immediately hidden — it supplies animations only.
+`Fighter.loadAssets(scene)` loads `beano-character.glb` via `SceneLoader.ImportMeshAsync`.
 
 Returns `SharedAssets`:
 ```ts
 interface SharedAssets {
-  baseMeshes: AbstractMesh[];              // from character.glb only, disabled
-  baseSkeleton: Skeleton | null;
-  animGroups: Record<string, AnimationGroup>; // merged from both GLBs, keyed by game name
+  baseMeshes: AbstractMesh[];              // beano mesh, disabled
+  baseSkeleton: Skeleton | null;           // Mixamo 41-bone skeleton
+  animGroups: Record<string, AnimationGroup>; // keyed by game name
 }
 ```
 
@@ -92,18 +90,18 @@ All animation mappings live in `ANIM_CONFIG` in `fighter/animations.ts`, typed a
 
 ```ts
 const ANIM_CONFIG = {
-  idle:     { glb: 'Idle_Loop',       loop: true  },
-  walkBack: { glb: 'Walk_Bwd_Loop',   loop: true,  src: 'ual2' },
-  punch1:   { glb: 'Punch_Jab',       loop: false },
+  idle:     { glb: 'Idle_Loop',     loop: true  },
+  walkBack: { glb: 'Walk_Bwd_Loop', loop: true  },
+  punch1:   { glb: 'Punch_Jab'                  },
   // …
 } satisfies Record<string, AnimConfig>;
 ```
 
-- `glb` is typed as `Ual1Clip | Ual2Clip` — a misspelled clip name is a **compile error**.
-- `src: 'ual2'` pulls from `UAL2.glb`; omitting `src` defaults to `'ual1'` (`character.glb`).
+- `glb` is typed as `(typeof BEANO_CLIPS)[number]` — a misspelled clip name is a **compile error**.
+- All 261 clips from UAL1+UAL2 are in a single file; no `src` field needed.
 - `loop`, `speed`, `blend` control playback.
 
-**To add a new animation:** add an entry to `ANIM_CONFIG` with the exact GLB clip name. The type system will reject any name not in the `Ual1Clip` or `Ual2Clip` union.
+**To add a new animation:** add an entry to `ANIM_CONFIG` with the exact GLB clip name. The type system will reject any name not in the `BEANO_CLIPS` union.
 
 ### Per-fighter init
 `fighter.init(assets)`:
@@ -116,14 +114,15 @@ const ANIM_CONFIG = {
 Player 1 gets a red tint by cloning and modifying `PBRMaterial.albedoColor`.
 
 ### Facing / rotation
-The Quaternius mannequin natively faces **+Z**.  
+The Beano/Mixamo model natively faces **-Z**.  
 Facing angle is the world-space direction toward the opponent (from `Math.atan2`).
 
 ```ts
-targetRotY = Math.PI / 2 - facingAngle;
+targetRotY = facingAngle - Math.PI / 2;
 ```
 
-This rotates the +Z-facing model to look in the `facingAngle` direction.
+`RotationAxis(Up, θ)` maps model's -Z to world `(-sin θ, 0, -cos θ)`.  
+To face `(cos A, 0, sin A)`: `-sin θ = cos A` → `θ = A - π/2`.
 
 ---
 

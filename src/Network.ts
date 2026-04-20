@@ -13,6 +13,24 @@ interface MatchedMsg {
   playerIndex: number;
   opponentName: string;
   roomId: string;
+  opponentCharacterId?: string;
+}
+
+interface LobbyMatchedMsg {
+  type: 'lobbyMatched';
+  playerIndex: number;
+  opponentName: string;
+  opponentCharacterId: string;
+  roomId: string;
+}
+
+interface OpponentPickMsg {
+  type: 'opponentPick';
+  characterId: string;
+}
+
+interface OpponentReadyMsg {
+  type: 'opponentReady';
 }
 
 interface CountdownMsg {
@@ -76,6 +94,9 @@ type ServerMessage =
   | SimpleMsg
   | PongMsg
   | MatchedMsg
+  | LobbyMatchedMsg
+  | OpponentPickMsg
+  | OpponentReadyMsg
   | CountdownMsg
   | OpponentInputMsg
   | OpponentSyncInputMsg
@@ -112,7 +133,9 @@ export interface FighterStateSync {
 
 // ── Outbound messages (client → server) ─────────────────────
 
-type JoinMsg = { type: 'join'; name: string };
+type JoinMsg = { type: 'join'; name: string; characterId: string };
+type PickMsg = { type: 'pick'; characterId: string };
+type ReadyMsg = { type: 'ready' };
 type PingMsg = { type: 'ping'; t: number };
 type RoundResultOutMsg = {
   type: 'roundResult';
@@ -125,7 +148,7 @@ type RoundResultOutMsg = {
 };
 type LeaveMsg = { type: 'leave' };
 
-type ClientMessage = JoinMsg | PingMsg | RoundResultOutMsg | LeaveMsg;
+type ClientMessage = JoinMsg | PickMsg | ReadyMsg | PingMsg | RoundResultOutMsg | LeaveMsg;
 
 // ── Event handler map ────────────────────────────────────────
 
@@ -133,8 +156,11 @@ type HandlerMap = {
   waiting: () => void;
   fight: () => void;
   opponentLeft: () => void;
+  opponentReady: () => void;
   disconnected: () => void;
   matched: (msg: MatchedMsg) => void;
+  lobbyMatched: (msg: LobbyMatchedMsg) => void;
+  opponentPick: (msg: OpponentPickMsg) => void;
   countdown: (msg: CountdownMsg) => void;
   opponentInput: (msg: OpponentInputMsg) => void;
   opponentSyncInput: (msg: OpponentSyncInputMsg) => void;
@@ -246,6 +272,18 @@ export class Network {
         this.roomId = msg.roomId;
         this.emit('matched', msg);
         break;
+      case 'lobbyMatched':
+        this.playerIndex = msg.playerIndex;
+        this.opponentName = msg.opponentName;
+        this.roomId = msg.roomId;
+        this.emit('lobbyMatched', msg);
+        break;
+      case 'opponentPick':
+        this.emit('opponentPick', msg);
+        break;
+      case 'opponentReady':
+        this.emit('opponentReady');
+        break;
       case 'countdown':
         this.emit('countdown', msg);
         break;
@@ -282,8 +320,16 @@ export class Network {
     }
   }
 
-  joinMatch(name: string) {
-    this.send({ type: 'join', name });
+  joinMatch(name: string, characterId: string) {
+    this.send({ type: 'join', name, characterId });
+  }
+
+  sendPick(characterId: string) {
+    this.send({ type: 'pick', characterId });
+  }
+
+  sendReady() {
+    this.send({ type: 'ready' });
   }
 
   sendSyncInput(targetFrame: number, input: InputState) {
