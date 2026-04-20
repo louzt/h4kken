@@ -84,7 +84,9 @@ export async function requestLandscapeFullscreen(): Promise<void> {
     // not supported or user denied — carry on
   }
   try {
-    await screen.orientation.lock('landscape');
+    await (screen.orientation as ScreenOrientation & { lock: (o: string) => Promise<void> }).lock(
+      'landscape',
+    );
   } catch {
     // iOS iPhone doesn't support this
   }
