@@ -11,15 +11,17 @@
     "fix": "bunx biome check --write . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "ci": "bunx biome ci . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
-    "prepare": "husky"
+    "prepare": "husky",
+    "build:character": "bun scripts/build-character.ts"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.33.2",
-    "@babylonjs/loaders": "^8.33.2",
+    "@babylonjs/core": "^9.3.1",
+    "@babylonjs/loaders": "^9.3.1",
     "express": "^4.18.2",
     "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@babylonjs/serializers": "^9.3.1",
     "@biomejs/biome": "^2.4.10",
     "@types/express": "^5.0.6",
     "@types/node": "^25.5.2",

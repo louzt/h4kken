@@ -22,9 +22,11 @@ import {
 } from '@babylonjs/core';
 import { AudioManager, BgmManager } from '../Audio';
 import { FightCamera } from '../Camera';
+import { CharSelect } from '../CharSelect';
 import { CombatSystem } from '../combat/CombatSystem';
 import { GAME_CONSTANTS } from '../constants';
 import { NetworkOverlay } from '../debug/NetworkOverlay';
+import { CHARACTERS, DEFAULT_P1, DEFAULT_P2 } from '../fighter/characters';
 import { Fighter, type SharedAssets } from '../fighter/Fighter';
 import { InputManager, type InputState } from '../Input';
 import { isTouchDevice, MobileControls, requestLandscapeFullscreen } from '../MobileControls';
@@ -42,6 +44,7 @@ const GC = GAME_CONSTANTS;
 const GAME_STATE = {
   LOADING: 'loading',
   MENU: 'menu',
+  CHAR_SELECT: 'charSelect',
   WAITING: 'waiting',
   COUNTDOWN: 'countdown',
   FIGHTING: 'fighting',
@@ -63,7 +66,10 @@ export class Game {
   network: Network;
   fighters: [Fighter | null, Fighter | null];
   localPlayerIndex: number;
-  sharedAssets: SharedAssets | null;
+  allCharAssets: Map<string, SharedAssets>;
+  charSelect: CharSelect | null = null;
+  _pendingMode: 'practice' | 'online' = 'practice';
+  _pendingCharId: string = DEFAULT_P1;
   round: number;
   roundTimer: number;
   roundTimerAccum: number;
@@ -204,7 +210,7 @@ export class Game {
 
     this.fighters = [null, null];
     this.localPlayerIndex = 0;
-    this.sharedAssets = null;
+    this.allCharAssets = new Map<string, SharedAssets>();
 
     this.round = 1;
     this.roundTimer = GC.ROUND_TIME;
@@ -241,11 +247,11 @@ export class Game {
   setupUIEvents() {
     this.ui.btnFindMatch?.addEventListener('click', () => {
       if (isTouchDevice()) requestLandscapeFullscreen();
-      this.findMatch();
+      this.startCharSelect('online');
     });
     this.ui.btnPractice?.addEventListener('click', () => {
       if (isTouchDevice()) requestLandscapeFullscreen();
-      this.startPractice();
+      this.startCharSelect('practice');
     });
     this.ui.btnControls?.addEventListener('click', () => this.ui.showScreen('controls-screen'));
     this.ui.btnBackControls?.addEventListener('click', () => this.ui.showScreen('menu-screen'));
@@ -257,14 +263,22 @@ export class Game {
 
     this.stage = new Stage(this.scene);
 
-    this.sharedAssets = await Fighter.loadAssets(this.scene, (progress: number) => {
-      this.ui.setLoadingProgress(progress);
-    });
+    const charEntries = Object.values(CHARACTERS);
+    let loaded = 0;
+    for (const meta of charEntries) {
+      const assets = await Fighter.loadAssets(this.scene, meta.id, (p: number) => {
+        this.ui.setLoadingProgress((loaded + p) / charEntries.length);
+      });
+      assets.scale = meta.scale;
+      this.allCharAssets.set(meta.id, assets);
+      loaded++;
+    }
 
     await this.audio.load(this.scene);
     // Not awaited — MP3 decoding is slow on mobile; menu shows while tracks load.
     this.bgm.load(this.scene);
 
+    this.charSelect = new CharSelect(this.scene, this.camera, this.allCharAssets);
     this.createFighters();
 
     this.ui.setLoadingProgress(1);
@@ -292,26 +306,66 @@ export class Game {
   }
 
   createFighters() {
-    if (!this.sharedAssets) throw new Error('SharedAssets not loaded');
+    this.reinitFighter(0, DEFAULT_P1);
+    this.reinitFighter(1, DEFAULT_P2);
+  }
 
-    this.fighters[0] = new Fighter(0, this.scene);
-    this.fighters[0].init(this.sharedAssets);
-
-    this.fighters[1] = new Fighter(1, this.scene);
-    this.fighters[1].init(this.sharedAssets);
-
-    // BGM is now driven by polling in _updateHud rather than events,
-    // so onSuperDeactivate is not needed for BGM purposes.
-
-    // Register fighter meshes as shadow casters so they cast onto the arena floor
+  reinitFighter(idx: 0 | 1, charId: string) {
+    const assets = this.allCharAssets.get(charId) ?? this.allCharAssets.get(DEFAULT_P1);
+    if (!assets) return;
+    this.fighters[idx]?.dispose();
+    const fighter = new Fighter(idx, this.scene);
+    fighter.init(assets);
+    this.fighters[idx] = fighter;
     const shadowGen = this.stage?.shadowGenerator;
     if (shadowGen) {
-      for (const fighter of this.fighters) {
-        if (!fighter) continue;
-        for (const mesh of fighter.meshes) {
-          shadowGen.addShadowCaster(mesh, true);
-        }
+      for (const mesh of fighter.meshes) shadowGen.addShadowCaster(mesh, true);
+    }
+  }
+
+  startCharSelect(mode: 'practice' | 'online') {
+    this.state = GAME_STATE.CHAR_SELECT;
+    this._pendingMode = mode;
+    for (const f of this.fighters) f?.rootNode?.setEnabled(false);
+    this.ui.hideAllScreens();
+
+    if (mode === 'online') {
+      if (!this.network.connected) {
+        this.ui.showAnnouncement('NOT CONNECTED', 'Server unavailable', 2000);
+        this.state = GAME_STATE.MENU;
+        this.ui.showScreen('menu-screen');
+        return;
       }
+      this._pendingCharId = DEFAULT_P1;
+      const name = this.ui.playerNameInput?.value || 'Player';
+      this.network.joinMatch(name, this._pendingCharId);
+    }
+
+    this.charSelect?.show(mode, {
+      onConfirm: (p1Id, p2Id) => this._onCharSelectConfirm(p1Id, p2Id),
+      onPick: (charId) => {
+        this._pendingCharId = charId;
+        this.network.sendPick(charId);
+      },
+      onReady: () => {
+        this.network.sendReady();
+      },
+      onBack: () => {
+        if (mode === 'online') this.network.leave();
+        this.charSelect?.hide();
+        for (const f of this.fighters) f?.rootNode?.setEnabled(true);
+        this.state = GAME_STATE.MENU;
+        this.ui.showScreen('menu-screen');
+      },
+    });
+  }
+
+  private _onCharSelectConfirm(p1Id: string, p2Id: string) {
+    this.charSelect?.hide();
+    if (this._pendingMode === 'practice') {
+      this.reinitFighter(0, p1Id);
+      this.reinitFighter(1, p2Id);
+      this.startPractice();
     }
   }
 
@@ -365,19 +419,20 @@ export class Game {
     this.state = GAME_STATE.COUNTDOWN;
   }
 
-  findMatch() {
+  findMatch(characterId: string) {
     const name = this.ui.playerNameInput?.value || 'Player';
     if (!this.network.connected) {
       this.ui.showAnnouncement('NOT CONNECTED', 'Server unavailable', 2000);
       return;
     }
-    this.network.joinMatch(name);
+    this.network.joinMatch(name, characterId);
     this.state = GAME_STATE.WAITING;
     this._startLobbyPoll();
   }
 
   cancelSearch() {
     this.network.leave();
+    for (const f of this.fighters) f?.rootNode?.setEnabled(true);
     this._stopLobbyPoll();
     this._netOverlay?.dispose();
     this._netOverlay = null;
@@ -1023,14 +1078,9 @@ export class Game {
         const p1Wins = winnerIdx === 0 ? localWins0 + 1 : localWins0;
         const p2Wins = winnerIdx === 1 ? localWins1 + 1 : localWins1;
         const matchOver = (winnerIdx === 0 ? p1Wins : p2Wins) >= GC.ROUNDS_TO_WIN;
-        this.network.sendRoundResult(
-          winnerIdx,
-          p1Wins,
-          p2Wins,
-          matchOver,
-          'idle', // Server broadcasts the authoritative anims
-          'idle',
-        );
+        const victoryAnim = winner.pickVictoryAnim();
+        const defeatAnim = loser.pickDefeatAnim(matchOver);
+        this.network.sendRoundResult(winnerIdx, p1Wins, p2Wins, matchOver, victoryAnim, defeatAnim);
       }
       // Visuals are applied when the server's roundResult arrives (NetworkEvents.ts)
       return;
@@ -1087,6 +1137,9 @@ export class Game {
       return;
     }
 
+    const winner = winnerIdx === 0 ? f1 : f2;
+    const loser = winnerIdx === 0 ? f2 : f1;
+
     // In multiplayer, defer to server's authoritative roundResult
     if (!this.isPractice) {
       if (this.state === GAME_STATE.FIGHTING) {
@@ -1094,15 +1147,15 @@ export class Game {
         const p1Wins = winnerIdx === 0 ? f1.wins + 1 : f1.wins;
         const p2Wins = winnerIdx === 1 ? f2.wins + 1 : f2.wins;
         const matchOver = (winnerIdx === 0 ? p1Wins : p2Wins) >= GC.ROUNDS_TO_WIN;
-        this.network.sendRoundResult(winnerIdx, p1Wins, p2Wins, matchOver, 'idle', 'idle');
+        const victoryAnim = winner.pickVictoryAnim();
+        const defeatAnim = loser.pickDefeatAnim(matchOver);
+        this.network.sendRoundResult(winnerIdx, p1Wins, p2Wins, matchOver, victoryAnim, defeatAnim);
       }
       return;
     }
 
     // Practice mode — apply immediately
     this.state = GAME_STATE.ROUND_END;
-    const winner = winnerIdx === 0 ? f1 : f2;
-    const loser = winnerIdx === 0 ? f2 : f1;
     winner.wins++;
     const matchOver = winner.wins >= GC.ROUNDS_TO_WIN;
     winner.setVictory();
@@ -1181,24 +1234,25 @@ export class Game {
   // ============================================================
 
   render(deltaTime: number) {
-    const f1 = this.fighters[0];
-    const f2 = this.fighters[1];
+    if (this.state !== GAME_STATE.CHAR_SELECT) {
+      const f1 = this.fighters[0];
+      const f2 = this.fighters[1];
 
-    // Visual hit stop: hold fighter positions for a few render frames on impact.
-    // Camera, stage, effects, and overlay still update — only fighter visuals freeze.
-    if (this._hitStopRenderFrames > 0) {
-      this._hitStopRenderFrames--;
-    } else {
-      if (f1) f1.updateVisuals();
-      if (f2) f2.updateVisuals();
-    }
+      // Visual hit stop: hold fighter positions for a few render frames on impact.
+      // Camera, stage, effects, and overlay still update — only fighter visuals freeze.
+      if (this._hitStopRenderFrames > 0) {
+        this._hitStopRenderFrames--;
+      } else {
+        if (f1) f1.updateVisuals();
+        if (f2) f2.updateVisuals();
+      }
 
-    if (f1 && f2) {
-      this.fightCamera.update(f1.position, f2.position, deltaTime, this.localPlayerIndex);
+      if (f1 && f2) {
+        this.fightCamera.update(f1.position, f2.position, deltaTime, this.localPlayerIndex);
+      }
     }
 
     if (this.stage) this.stage.update(deltaTime);
-
     this.effects.update();
 
     // Live network debug overlay (F3 toggle, only during online matches)

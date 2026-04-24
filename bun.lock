@@ -5,12 +5,13 @@
     "": {
       "name": "h4kken",
       "dependencies": {
-        "@babylonjs/core": "^8.33.2",
-        "@babylonjs/loaders": "^8.33.2",
+        "@babylonjs/core": "^9.3.1",
+        "@babylonjs/loaders": "^9.3.1",
         "express": "^4.18.2",
         "ws": "^8.16.0",
       },
       "devDependencies": {
+        "@babylonjs/serializers": "^9.3.1",
         "@biomejs/biome": "^2.4.10",
         "@types/express": "^5.0.6",
         "@types/node": "^25.5.2",
@@ -24,9 +25,11 @@
     },
   },
   "packages": {
-    "@babylonjs/core": ["@babylonjs/core@8.56.2", "", {}, "sha512-UShs1pt8tSTLYOoITWclXPNrUZUpuHvB2Ur2L1D+uM8c9qaAYOi9gjkurOkQwIlbPGqwQHWImGEyiyix0mQ1dg=="],
+    "@babylonjs/core": ["@babylonjs/core@9.3.1", "", {}, "sha512-gCAVsS40EF9SFXUoe5wl5lA03hwmRQoP9v3y8EdQ2aPSaozIApu4LrxI6yFgczzxGVa2utcj6rF6pgO5VuK7nw=="],
 
-    "@babylonjs/loaders": ["@babylonjs/loaders@8.56.2", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0", "babylonjs-gltf2interface": "^8.0.0" } }, "sha512-I2klIhTl4HLVVQEMsBpEh5YqbCCi1hA1oajRVCUcy+9Vfh0owzHEGau0GsVRlAOeYEBDNUrfOj0N6nFGTjNQ6g=="],
+    "@babylonjs/loaders": ["@babylonjs/loaders@9.3.1", "", { "peerDependencies": { "@babylonjs/core": "^9.0.0", "babylonjs-gltf2interface": "^9.0.0" } }, "sha512-rzXjBHARqh5MUZFltA26mX5NwQJtn9Wu1dR3Rch3sXZD9ShDBpUcEcdl7/LqbatysB9PKEN99tTN/ljwEUlRww=="],
+
+    "@babylonjs/serializers": ["@babylonjs/serializers@9.3.1", "", { "peerDependencies": { "@babylonjs/core": "^9.0.0", "babylonjs-gltf2interface": "^9.0.0" } }, "sha512-TJUIFRN/vZmKIrwNRYDYV+Uzxo7BZQowEp//015MmCM7MUwdIQEvFESqmNtFVxZGFVbH5WqHOqdX+grgu5D3lg=="],
 
     "@biomejs/biome": ["@biomejs/biome@2.4.10", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.4.10", "@biomejs/cli-darwin-x64": "2.4.10", "@biomejs/cli-linux-arm64": "2.4.10", "@biomejs/cli-linux-arm64-musl": "2.4.10", "@biomejs/cli-linux-x64": "2.4.10", "@biomejs/cli-linux-x64-musl": "2.4.10", "@biomejs/cli-win32-arm64": "2.4.10", "@biomejs/cli-win32-x64": "2.4.10" }, "bin": { "biome": "bin/biome" } }, "sha512-xxA3AphFQ1geij4JTHXv4EeSTda1IFn22ye9LdyVPoJU19fNVl0uzfEuhsfQ4Yue/0FaLs2/ccVi4UDiE7R30w=="],
 

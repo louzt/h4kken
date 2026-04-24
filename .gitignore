@@ -24,6 +24,10 @@ package-lock.json
 *.swp
 *.swo
 
+# Blender autosaves
+*.blend1
+*.blend[0-9]
+
 # TypeScript incremental compilation cache
 .tsbuildinfo
 .tsbuildinfo.server

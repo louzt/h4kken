@@ -9,17 +9,21 @@ import type { Fighter } from './Fighter';
 
 const GC = GAME_CONSTANTS;
 
+export function pickVictoryAnim(fighter: Fighter): AnimKey {
+  if (fighter.health / fighter.maxHealth <= 0.15 && Math.random() < 0.65) return 'victoryTired';
+  return pickRandom(ANIM_POOLS.victory);
+}
+
+export function pickDefeatAnim(fighter: Fighter, matchOver: boolean): AnimKey {
+  if (matchOver) return 'defeatMatch';
+  if (fighter.comboCount >= 3 || fighter.comboDamage >= GC.MAX_HEALTH * 0.5) return 'defeatBig';
+  return 'defeat';
+}
+
 export function setVictory(fighter: Fighter, animName?: AnimKey): AnimKey {
   fighter.state = FIGHTER_STATE.VICTORY;
   fighter.velocity.set(0, 0, 0);
-  let chosen: AnimKey;
-  if (animName) {
-    chosen = animName;
-  } else if (fighter.health / fighter.maxHealth <= 0.15 && Math.random() < 0.65) {
-    chosen = 'victoryTired';
-  } else {
-    chosen = pickRandom(ANIM_POOLS.victory);
-  }
+  const chosen = animName ?? pickVictoryAnim(fighter);
   fighter.playAnimation(chosen);
   return chosen;
 }
@@ -27,16 +31,7 @@ export function setVictory(fighter: Fighter, animName?: AnimKey): AnimKey {
 export function setDefeat(fighter: Fighter, animName?: AnimKey, matchOver = false): AnimKey {
   fighter.state = FIGHTER_STATE.DEFEAT;
   fighter.velocity.set(0, 0, 0);
-  let chosen: AnimKey;
-  if (animName) {
-    chosen = animName;
-  } else if (matchOver) {
-    chosen = 'defeatMatch';
-  } else if (fighter.comboCount >= 3 || fighter.comboDamage >= GC.MAX_HEALTH * 0.5) {
-    chosen = 'defeatBig';
-  } else {
-    chosen = 'defeat';
-  }
+  const chosen = animName ?? pickDefeatAnim(fighter, matchOver);
   fighter.playAnimation(chosen);
   return chosen;
 }
