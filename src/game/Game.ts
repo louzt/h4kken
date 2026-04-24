@@ -20,7 +20,7 @@ import {
   Vector3,
   WebGPUEngine,
 } from '@babylonjs/core';
-import { AudioManager, BgmManager } from '../Audio';
+import { AudioManager, armAudioUnlockOnFirstGesture, BgmManager } from '../Audio';
 import { FightCamera } from '../Camera';
 import { CharSelect } from '../CharSelect';
 import { CombatSystem } from '../combat/CombatSystem';
@@ -246,6 +246,7 @@ export class Game {
   }
 
   setupUIEvents() {
+    armAudioUnlockOnFirstGesture();
     this.ui.btnFindMatch?.addEventListener('click', () => {
       if (isTouchDevice()) requestLandscapeFullscreen();
       this.startCharSelect('online');
