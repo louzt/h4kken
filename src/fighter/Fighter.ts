@@ -31,6 +31,7 @@ import type { InputState } from '../Input';
 import type { FighterStateSync } from '../Network';
 import { ANIM_CONFIG, ANIM_POOLS, type AnimConfig, type AnimKey, pickRandom } from './animations';
 import { CompositeAnimController, isCompositeAnim } from './CompositeAnimations';
+import { buildBoneMap, cloneAndPrepareSkeleton, remapAnimationTarget } from './cloneBindings';
 import {
   cancelIntro,
   pickDefeatAnim,
@@ -231,23 +232,10 @@ export class Fighter {
     this._superCoreParticles = null;
   }
 
-  // FBX loader prefixes every bone as "<meshName>-<boneName>".
-  // Strip that prefix so we can match bones across different sources.
-  private static _boneSuffix(name: string): string {
-    const idx = name.indexOf('-');
-    return idx >= 0 ? name.substring(idx + 1) : name;
-  }
-
   // GLB (glTF) is Y-up by spec — no axis correction needed.
   // Only the Y rotation for facing direction is applied here.
   private static _makeRootQuat(rotY: number): Quaternion {
     return Quaternion.RotationAxis(Vector3.Up(), rotY);
-  }
-
-  private static _unlinkBonesFromTransformNodes(skeleton: Skeleton) {
-    for (const bone of skeleton.bones) {
-      bone.linkTransformNode(null);
-    }
   }
 
   static async loadAssets(
@@ -319,22 +307,13 @@ export class Fighter {
       this.rootNode.scaling.setAll(scale);
     }
 
-    const clonedSkeleton = baseSkeleton
-      ? baseSkeleton.clone(`skeleton_f${this.playerIndex}`, `skel_${this.playerIndex}`)
-      : null;
+    const clonedSkeleton = cloneAndPrepareSkeleton(
+      baseSkeleton,
+      `skeleton_f${this.playerIndex}`,
+      `skel_${this.playerIndex}`,
+      { useTextureToStoreBoneMatrices: true },
+    );
     this._skeleton = clonedSkeleton;
-
-    if (clonedSkeleton) {
-      // Unlink cloned bones from the base TransformNodes. The retargeted
-      // animations target TransformNodes by name; the per-fighter target
-      // remap below rewrites those to point at the cloned bones instead, so
-      // the link would just cause all fighters to mirror the base pose.
-      Fighter._unlinkBonesFromTransformNodes(clonedSkeleton);
-      // Store bone matrices in a GPU texture instead of uploading as uniform arrays.
-      // ~10-15% animation performance gain on 65-bone skeletons — the GPU reads
-      // matrices from a texture fetch instead of consuming uniform buffer slots.
-      clonedSkeleton.useTextureToStoreBoneMatrices = true;
-    }
 
     // Clone each base mesh, parenting it to this fighter's root node
     this.meshes = [];
@@ -348,12 +327,7 @@ export class Fighter {
     }
 
     // Build suffix→Bone map so _cloneAnimGroups can remap targets to cloned bones
-    const boneByName = new Map<string, Bone>();
-    if (clonedSkeleton) {
-      for (const bone of clonedSkeleton.bones) {
-        boneByName.set(Fighter._boneSuffix(bone.name), bone);
-      }
-    }
+    const boneByName = buildBoneMap(clonedSkeleton);
 
     this._cloneAnimGroups(animGroups, boneByName);
     this._composite = new CompositeAnimController(this.scene, this.playerIndex);
@@ -401,13 +375,9 @@ export class Fighter {
     boneByName: Map<string, Bone>,
   ) {
     for (const [name, srcGroup] of Object.entries(animGroups)) {
-      const clonedGroup = srcGroup.clone(`f${this.playerIndex}_${name}`, (target) => {
-        if (target && typeof target === 'object' && 'name' in target) {
-          const mapped = boneByName.get(Fighter._boneSuffix((target as { name: string }).name));
-          if (mapped) return mapped;
-        }
-        return target;
-      });
+      const clonedGroup = srcGroup.clone(`f${this.playerIndex}_${name}`, (target) =>
+        remapAnimationTarget(target, boneByName),
+      );
       clonedGroup.stop();
       clonedGroup.loopAnimation = (ANIM_CONFIG as Record<string, AnimConfig>)[name]?.loop ?? false;
       this.animGroups[name] = clonedGroup;
