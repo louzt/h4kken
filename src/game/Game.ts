@@ -151,13 +151,26 @@ export class Game {
     // upscales from there. dpr/2 gives a mild downscale on high-dpi devices (dpr=3 → 1.5).
     const scalingLevel = mobile ? Math.max(1, window.devicePixelRatio / 2) : 1;
 
-    // Skip WebGPU on iOS — Safari claims support but Babylon.js WebGPU has known issues there.
-    const isIOS = /iP(hone|ad|od)/i.test(navigator.userAgent);
-    if (!isIOS && (await WebGPUEngine.IsSupportedAsync)) {
-      const gpu = new WebGPUEngine(canvas, options);
-      await gpu.initAsync();
-      if (scalingLevel !== 1) gpu.setHardwareScalingLevel(scalingLevel);
-      return gpu;
+    const rendererParam = new URLSearchParams(window.location.search).get('renderer');
+    const forceWebGL = rendererParam === 'webgl';
+    const forceWebGPU = rendererParam === 'webgpu';
+    // Skip WebGPU on iOS and Firefox by default.
+    // Safari and Firefox both report support in environments where Babylon WebGPU
+    // can still fail during pipeline creation and leave the scene black.
+    const userAgent = navigator.userAgent;
+    const isIOS = /iP(hone|ad|od)/i.test(userAgent);
+    const isFirefox = /Firefox\//i.test(userAgent);
+    const allowWebGPU = !forceWebGL && (forceWebGPU || (!isIOS && !isFirefox));
+
+    if (allowWebGPU && (await WebGPUEngine.IsSupportedAsync)) {
+      try {
+        const gpu = new WebGPUEngine(canvas, options);
+        await gpu.initAsync();
+        if (scalingLevel !== 1) gpu.setHardwareScalingLevel(scalingLevel);
+        return gpu;
+      } catch (error) {
+        console.warn('[H4KKEN] WebGPU init failed, falling back to WebGL.', error);
+      }
     }
     const eng = new Engine(canvas, antialias, options);
     if (scalingLevel !== 1) eng.setHardwareScalingLevel(scalingLevel);
@@ -446,6 +459,7 @@ export class Game {
 
   /** Leave practice mode — return to main menu. */
   leavePractice() {
+    this._stopMobileQualityRecovery();
     this._destroyPracticeMenu();
     this._netOverlay?.dispose();
     this._netOverlay = null;
@@ -607,6 +621,13 @@ export class Game {
     }
     const infoEl = document.getElementById('lobby-info');
     if (infoEl) infoEl.textContent = '';
+  }
+
+  private _stopMobileQualityRecovery(): void {
+    if (this._mobileQualityRecoverTimer) {
+      clearInterval(this._mobileQualityRecoverTimer);
+      this._mobileQualityRecoverTimer = null;
+    }
   }
 
   async startPracticeCountdown() {
@@ -838,8 +859,7 @@ export class Game {
     this._mobileQualityRecoverTimer = setInterval(() => {
       const currentScaling = this.engine.getHardwareScalingLevel();
       if (currentScaling <= 1) {
-        clearInterval(this._mobileQualityRecoverTimer ?? undefined);
-        this._mobileQualityRecoverTimer = null;
+        this._stopMobileQualityRecovery();
         return;
       }
 
@@ -1212,6 +1232,7 @@ export class Game {
 
   onMatchEnd(winnerIdx: number) {
     this.state = GAME_STATE.MATCH_END;
+    this._stopMobileQualityRecovery();
     this.stopBGM();
     if (winnerIdx === this.localPlayerIndex) {
       this.audio.play('announce_youwin', 0.63);

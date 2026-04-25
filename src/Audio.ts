@@ -30,7 +30,6 @@ function loadSoundWithSoftTimeout(
     };
     const sound = new Sound(name, url, scene, () => finish(sound), options);
     const timeoutId = setTimeout(() => {
-      console.warn(`[AUDIO] Timed out loading ${url} after ${timeoutMs}ms`);
       finish(sound);
     }, timeoutMs);
   });

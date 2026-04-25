@@ -40,7 +40,7 @@ const TURN_PORT = process.env.TURN_PORT || '3478';
 const TURN_TLS_PORT = process.env.TURN_TLS_PORT || '5349';
 const TURN_CREDENTIAL_TTL_SEC = Math.max(
   60,
-  Number.parseInt(process.env.TURN_CREDENTIAL_TTL_SEC || '600', 10) || 600,
+  Number.parseInt(process.env.TURN_CREDENTIAL_TTL_SEC || '3600', 10) || 3600,
 );
 
 app.get('/api/turn-credentials', async (_req, res) => {
