@@ -8,9 +8,10 @@
     "dev": "concurrently \"bun --watch server.ts\" \"vite\"",
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "bun dist/server.js",
-    "fix": "bunx biome check --write . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
+    "fix": "bun x biome check --write . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bun x knip",
+    "test": "bun test",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "ci": "bunx biome ci . && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bunx knip",
+    "ci": "bun x biome ci . && bun test && tsc --noEmit && tsc -p tsconfig.server.json --noEmit && bun x knip",
     "prepare": "husky",
     "build:character": "bun scripts/build-character.ts"
   },
